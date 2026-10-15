@@ -123,3 +123,16 @@ test('weekly RCTI catches up once after the server slept through Monday', async 
   await weeklyRun();
   assert.equal(db.prepare('SELECT COUNT(*) n FROM rctis').get().n, before + 1, 'does not run twice');
 });
+
+test('office can save the Gmail account in Settings without the password ever coming back', async () => {
+  const office = client();
+  await office('POST', '/api/login', { email: 'boss@test.local', password: 'OfficePass1' });
+  await office('PUT', '/api/settings/email', { smtp_user: 'x@gmail.com', smtp_pass: 'abcd efgh ijkl mnop' });
+  const s = (await office('GET', '/api/settings')).body;
+  assert.equal(s.smtp, true);
+  assert.equal(s.smtp_pass_set, true);
+  assert.ok(!JSON.stringify(s).includes('abcdefghijklmnop'));
+  assert.equal(getSettings().smtp_pass, 'abcdefghijklmnop');
+  await office('PUT', '/api/settings/email', { smtp_pass: '' });
+  assert.equal((await office('GET', '/api/settings')).body.smtp, false);
+});

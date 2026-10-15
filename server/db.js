@@ -114,6 +114,10 @@ const DEFAULT_SETTINGS = {
   auto_email_runsheets: '1',
   logo_path: '',
   last_auto_rcti_week: '',
+  smtp_host: 'smtp.gmail.com',
+  smtp_port: '465',
+  smtp_user: 'sbtpayadvice@gmail.com',
+  smtp_pass: '',
 };
 const insertDefault = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
 for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insertDefault.run(k, v);

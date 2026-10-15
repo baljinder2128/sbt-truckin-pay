@@ -53,21 +53,20 @@ Copy `.env.example` to `.env`.
 
 | What | How |
 |---|---|
-| Real email | Set the `SMTP_*` values from `.env.example` (already filled in for sbtpayadvice@gmail.com). `SMTP_PASS` must be a Gmail **app password**: Google Account → Security → turn on 2-Step Verification → App passwords → create one called "SB Pay" and paste the 16 letters. Until `SMTP_HOST` is set every email is saved to `data/outbox` as an `.eml` file and nothing is sent. |
+| Real email | Easiest: office app → Settings → Email account. Or set the `SMTP_*` values from `.env.example`. The password must be a Gmail **app password**: Google Account → Security → turn on 2-Step Verification → App passwords → create one called "SB Pay" and paste the 16 letters. Until `SMTP_HOST` is set every email is saved to `data/outbox` as an `.eml` file and nothing is sent. |
 | Reading times from runsheet photos | Set `ANTHROPIC_API_KEY`. Without it drivers type the times in from their photo. |
 | Security on a public server | Set a long random `JWT_SECRET` and a strong `ADMIN_PASSWORD`, and serve it over HTTPS. |
 
 ## Putting it online for free (Railway)
 
-1. Put this folder in a GitHub repository.
-2. Sign up at railway.com with that GitHub account (free plan: no card, $1 of usage a month).
-3. **New Project → Deploy from GitHub repo** → pick the repository. It builds from the `Dockerfile`.
-4. In the service: **Volumes → Add volume**, mount path `/data` (keeps the database, photos and PDFs across restarts).
-5. **Variables**: add `ADMIN_PASSWORD`, `JWT_SECRET` (any long random text), `TZ=Australia/Melbourne`, and the `SMTP_*` lines from `.env.example` with your Gmail app password.
-6. **Settings → Networking → Generate domain** gives you the https link for the office and drivers.
-7. **Settings → Serverless**: turn on, so the app sleeps when nobody is using it and stays inside the free $1. The first load after a quiet spell takes a few seconds. If the app is asleep at 1am Monday, the weekly RCTIs are created as soon as anyone opens it.
+1. Sign in at railway.com with GitHub, **New Project → Deploy from GitHub repo → sbt-truckin-pay**. It builds from the `Dockerfile`.
+2. Right-click the service box on the canvas → **Attach volume** → mount path `/data`. This keeps the database, photos and PDFs across restarts.
+3. Click the service → **Settings → Networking → Generate Domain**. That https link is the app for the office and drivers.
+4. Optional: **Settings → Serverless** on, so it sleeps when idle and stays inside the free $1 a month. If it's asleep at 1am Monday, the weekly RCTIs are created as soon as anyone opens it.
 
-The free volume holds 0.5 GB, roughly 2,000 runsheet photos. Office copies of every photo are also in the Gmail inbox.
+No Railway variables are needed. After the first login (`office@sbttruckin.com.au` / `ChangeMe123!`), change the password and add the Gmail app password in the app under **Settings**.
+
+The free volume holds 0.5 GB, roughly 2,000 runsheet photos.
 
 ## Other hosts
 

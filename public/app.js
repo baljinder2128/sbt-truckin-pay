@@ -665,9 +665,14 @@
       return {
         html: html`<h1>Settings</h1>
           <div class="grid g2 stack" style="margin-bottom:16px">
-            <div class="notice ${s.smtp ? 'ok' : 'warn'}" style="margin:0"><b>Email:</b> ${s.smtp ? 'sending through your mail server.' : 'not connected yet. Emails are saved in the outbox on the server instead of being sent.'}</div>
+            <div class="notice ${s.smtp ? 'ok' : 'warn'}" style="margin:0"><b>Email:</b> ${s.smtp ? 'sending from your email account.' : 'not connected yet. Add the Gmail app password below. Until then emails are only saved in the Email log.'}</div>
             <div class="notice ${s.extraction ? 'ok' : 'warn'}" style="margin:0"><b>Photo reading:</b> ${s.extraction ? 'on. Times are read off runsheet photos for drivers to check.' : 'off. Drivers type times in from the photo.'}</div>
           </div>
+          ${s.smtp_from_env ? '' : html`<form class="card" id="mailForm"><h2>Email account (sends runsheets and RCTIs)</h2>
+            <div class="grid g2 stack"><div class="field"><label>Gmail address</label><input name="smtp_user" type="email" value="${s.smtp_user || ''}" required></div>
+              <div class="field"><label>Gmail app password</label><input name="smtp_pass" type="password" autocomplete="new-password" placeholder="${s.smtp_pass_set ? 'Saved. Type a new one to replace it' : '16 letters from Google'}"><div class="hint">Not your normal Gmail password. In your Google Account go to Security, turn on 2-Step Verification, then search "App passwords" and create one called SB Pay.</div></div></div>
+            <div class="actions"><button class="btn dark">Save and send test email</button>${s.smtp_pass_set ? html`<button type="button" class="btn danger sm" id="mailOff">Stop sending</button>` : ''}</div>
+            <p class="hint">The test email goes to the office email below.</p></form>`}
           <form id="sForm">
             <div class="card"><h2>Company details (on every RCTI)</h2><div class="grid g2 stack">
               ${f('company_name', 'Company name', 'required')}${f('company_abn', 'ABN')}${f('company_phone', 'Phone')}${f('company_email', 'Email (sender)', 'type="email"')}
@@ -693,6 +698,19 @@
             body.auto_weekly_rcti = e.target.auto_weekly_rcti.checked ? '1' : '0';
             try { await api('/api/settings', { method: 'PUT', body }); toast('Settings saved'); } catch (err) { fail(err); }
           });
+          $('#mailForm', v)?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const body = { smtp_user: e.target.smtp_user.value };
+            if (e.target.smtp_pass.value) body.smtp_pass = e.target.smtp_pass.value;
+            try {
+              await api('/api/settings/email', { method: 'PUT', body });
+              const o = await api('/api/settings/test-email', { method: 'POST' });
+              if (o.ok && o.mode === 'smtp') toast('Email works. Test sent to the office email.');
+              else emailToast(o);
+              render();
+            } catch (err) { fail(err); }
+          });
+          $('#mailOff', v) && ($('#mailOff', v).onclick = async () => { try { await api('/api/settings/email', { method: 'PUT', body: { smtp_pass: '' } }); toast('Email sending stopped'); render(); } catch (err) { fail(err); } });
           $('#logoForm', v).addEventListener('submit', async (e) => {
             e.preventDefault();
             try { await api('/api/settings/logo', { method: 'POST', body: new FormData(e.target) }); state.config = await api('/api/config'); toast('Logo updated'); render(); } catch (err) { fail(err); }
