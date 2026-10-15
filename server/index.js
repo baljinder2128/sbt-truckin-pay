@@ -416,7 +416,7 @@ app.put('/api/staff/:id', auth('office'), (req, res) => {
 const SETTING_KEYS = ['company_name', 'company_abn', 'company_address', 'company_phone', 'company_email', 'office_email', 'rcti_prefix', 'rcti_next_number', 'payment_terms', 'rcti_agreement', 'auto_weekly_rcti', 'auto_email_runsheets'];
 app.get('/api/settings', auth('office'), (req, res) => {
   const s = getSettings();
-  res.json({ ...Object.fromEntries(SETTING_KEYS.map((k) => [k, s[k]])), has_logo: !!s.logo_path, smtp: smtpConfigured(), smtp_from_env: !!process.env.SMTP_HOST, smtp_host: s.smtp_host, smtp_user: s.smtp_user, smtp_pass_set: !!s.smtp_pass, extraction: extractionEnabled, timezone: TZ });
+  res.json({ ...Object.fromEntries(SETTING_KEYS.map((k) => [k, s[k]])), has_logo: !!s.logo_path, smtp: smtpConfigured(), smtp_from_env: !!process.env.SMTP_HOST, smtp_host: s.smtp_host, smtp_user: s.smtp_user, smtp_pass_set: !!s.smtp_pass, brevo_key_set: !!s.brevo_api_key, brevo_from_env: !!process.env.BREVO_API_KEY, extraction: extractionEnabled, timezone: TZ });
 });
 app.put('/api/settings', auth('office'), (req, res) => {
   for (const k of SETTING_KEYS) if (req.body[k] !== undefined) setSetting(k, req.body[k]);
@@ -429,6 +429,7 @@ app.put('/api/settings/email', auth('office'), (req, res) => {
   if (b.smtp_port) setSetting('smtp_port', String(b.smtp_port).trim());
   // Google shows app passwords in groups of four letters; spaces aren't part of it.
   if (b.smtp_pass !== undefined) setSetting('smtp_pass', String(b.smtp_pass).replace(/\s+/g, ''));
+  if (b.brevo_api_key !== undefined) setSetting('brevo_api_key', String(b.brevo_api_key).trim());
   res.json({ ok: true, smtp: smtpConfigured() });
 });
 app.post('/api/settings/test-email', auth('office'), wrap(async (req, res) => {

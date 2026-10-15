@@ -20,7 +20,9 @@ function smtpConfig() {
   if (!s.smtp_pass) return null;
   return { host: s.smtp_host || 'smtp.gmail.com', port: Number(s.smtp_port || 465), secure: String(s.smtp_port || 465) === '465', user: s.smtp_user, pass: s.smtp_pass };
 }
-const smtpConfigured = () => !!smtpConfig();
+// Brevo sends over HTTPS, which works on hosts (like Railway's free plan) that block SMTP ports.
+const brevoKey = () => process.env.BREVO_API_KEY || getSettings().brevo_api_key || '';
+const smtpConfigured = () => !!(brevoKey() || smtpConfig());
 
 let cached = { key: null, transport: null };
 function getTransport() {
@@ -30,11 +32,28 @@ function getTransport() {
     cached = {
       key,
       transport: c
-        ? nodemailer.createTransport({ host: c.host, port: c.port, secure: c.secure, auth: c.user ? { user: c.user, pass: c.pass } : undefined })
+        ? nodemailer.createTransport({ host: c.host, port: c.port, secure: c.secure, auth: c.user ? { user: c.user, pass: c.pass } : undefined, connectionTimeout: 15000, greetingTimeout: 15000 })
         : nodemailer.createTransport({ streamTransport: true, buffer: true, newline: 'unix' }),
     };
   }
   return { smtp: !!c, transport: cached.transport };
+}
+
+function sender() {
+  const s = getSettings();
+  return { name: s.company_name, email: s.smtp_user || s.company_email };
+}
+
+async function sendBrevo(key, { to, subject, html, text, attachments }) {
+  const body = {
+    sender: sender(), to: String(to).split(',').map((e) => ({ email: e.trim() })).filter((x) => x.email), subject,
+    htmlContent: html || undefined, textContent: html ? undefined : text,
+    attachment: attachments.length ? attachments.map((a) => ({ name: a.filename, content: (a.content ? Buffer.from(a.content) : fs.readFileSync(a.path)).toString('base64') })) : undefined,
+  };
+  const r = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { 'api-key': key, 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`Brevo: ${out.message || r.status}`);
+  return out.messageId || '';
 }
 
 function fromAddress() {
@@ -46,13 +65,19 @@ function fromAddress() {
 }
 
 async function sendMail({ to, subject, html, text, attachments = [] }) {
+  const key = brevoKey();
   const { smtp, transport } = getTransport();
-  const mode = smtp ? 'smtp' : 'outbox';
+  const mode = key || smtp ? 'smtp' : 'outbox';
   if (!to) {
     db.prepare('INSERT INTO email_log (to_addr, subject, mode, status, detail) VALUES (?,?,?,?,?)').run('-', subject, mode, 'skipped', 'No recipient address set');
     return { ok: false, skipped: true, reason: 'No recipient address set' };
   }
   try {
+    if (key) {
+      const id = await sendBrevo(key, { to, subject, html, text, attachments });
+      db.prepare('INSERT INTO email_log (to_addr, subject, mode, status, detail) VALUES (?,?,?,?,?)').run(to, subject, mode, 'sent', 'Brevo ' + id);
+      return { ok: true, mode, detail: id };
+    }
     const info = await transport.sendMail({ from: fromAddress(), to, subject, html, text, attachments });
     let detail = info.messageId || '';
     if (!smtp) {

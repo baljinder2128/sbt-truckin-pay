@@ -118,6 +118,7 @@ const DEFAULT_SETTINGS = {
   smtp_port: '465',
   smtp_user: 'baljinder2128@gmail.com',
   smtp_pass: '',
+  brevo_api_key: '',
 };
 const insertDefault = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
 for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insertDefault.run(k, v);

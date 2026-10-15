@@ -136,3 +136,30 @@ test('office can save the Gmail account in Settings without the password ever co
   await office('PUT', '/api/settings/email', { smtp_pass: '' });
   assert.equal((await office('GET', '/api/settings')).body.smtp, false);
 });
+
+test('a Brevo key in Settings sends email over HTTPS and is never shown again', async () => {
+  const office = client();
+  await office('POST', '/api/login', { email: 'boss@test.local', password: 'OfficePass1' });
+  const realFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, opts) => {
+    if (String(url).startsWith('https://api.brevo.com/')) { calls.push({ url, opts }); return new Response(JSON.stringify({ messageId: '<m1@brevo>' }), { status: 201 }); }
+    return realFetch(url, opts);
+  };
+  try {
+    await office('PUT', '/api/settings/email', { smtp_user: 'sender@gmail.com', brevo_api_key: 'xkeysib-secret' });
+    const s = (await office('GET', '/api/settings')).body;
+    assert.equal(s.brevo_key_set, true);
+    assert.ok(!JSON.stringify(s).includes('xkeysib-secret'));
+    const out = (await office('POST', '/api/settings/test-email')).body;
+    assert.equal(out.ok, true);
+    assert.equal(out.mode, 'smtp');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].opts.headers['api-key'], 'xkeysib-secret');
+    assert.equal(JSON.parse(calls[0].opts.body).sender.email, 'sender@gmail.com');
+  } finally {
+    global.fetch = realFetch;
+    await office('PUT', '/api/settings/email', { brevo_api_key: '' });
+  }
+  assert.equal((await office('GET', '/api/settings')).body.smtp, false);
+});

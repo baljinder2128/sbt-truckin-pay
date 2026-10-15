@@ -665,14 +665,17 @@
       return {
         html: html`<h1>Settings</h1>
           <div class="grid g2 stack" style="margin-bottom:16px">
-            <div class="notice ${s.smtp ? 'ok' : 'warn'}" style="margin:0"><b>Email:</b> ${s.smtp ? 'sending from your email account.' : 'not connected yet. Add the Gmail app password below. Until then emails are only saved in the Email log.'}</div>
+            <div class="notice ${s.smtp ? 'ok' : 'warn'}" style="margin:0"><b>Email:</b> ${s.smtp ? 'sending from your email account.' : 'not connected yet. Add a Brevo API key below. Until then emails are only saved in the Email log.'}</div>
             <div class="notice ${s.extraction ? 'ok' : 'warn'}" style="margin:0"><b>Photo reading:</b> ${s.extraction ? 'on. Times are read off runsheet photos for drivers to check.' : 'off. Drivers type times in from the photo.'}</div>
           </div>
-          ${s.smtp_from_env ? '' : html`<form class="card" id="mailForm"><h2>Email account (sends runsheets and RCTIs)</h2>
-            <div class="grid g2 stack"><div class="field"><label>Gmail address</label><input name="smtp_user" type="email" value="${s.smtp_user || ''}" required></div>
-              <div class="field"><label>Gmail app password</label><input name="smtp_pass" type="password" autocomplete="new-password" placeholder="${s.smtp_pass_set ? 'Saved. Type a new one to replace it' : '16 letters from Google'}"><div class="hint">Not your normal Gmail password. In your Google Account go to Security, turn on 2-Step Verification, then search "App passwords" and create one called SB Pay.</div></div></div>
-            <div class="actions"><button class="btn dark">Save and send test email</button>${s.smtp_pass_set ? html`<button type="button" class="btn danger sm" id="mailOff">Stop sending</button>` : ''}</div>
-            <p class="hint">The test email goes to the office email below.</p></form>`}
+          ${s.smtp_from_env || s.brevo_from_env ? '' : html`<form class="card" id="mailForm"><h2>Email account (sends runsheets and RCTIs)</h2>
+            ${state.mailResult ? html`<div class="notice ${state.mailResult.ok ? 'ok' : 'warn'}">${state.mailResult.text}</div>` : ''}
+            <div class="grid g2 stack"><div class="field"><label>Send from (email address)</label><input name="smtp_user" type="email" value="${s.smtp_user || ''}" required><div class="hint">Must be the address you confirmed in Brevo.</div></div>
+              <div class="field"><label>Brevo API key</label><input name="brevo_api_key" type="password" autocomplete="off" placeholder="${s.brevo_key_set ? 'Saved. Paste a new one to replace it' : 'Starts with xkeysib-'}"><div class="hint">Free at brevo.com. In Brevo open SMTP &amp; API, then API Keys, and create a key called SB Pay.</div></div></div>
+            <details style="margin:4px 0 12px"><summary class="small muted">Use a Gmail app password instead (only works on paid hosting)</summary>
+              <div class="field" style="margin-top:8px"><label>Gmail app password</label><input name="smtp_pass" type="password" autocomplete="new-password" placeholder="${s.smtp_pass_set ? 'Saved. Type a new one to replace it' : '16 letters from Google'}"></div></details>
+            <div class="actions"><button class="btn dark">Save and send test email</button>${s.brevo_key_set || s.smtp_pass_set ? html`<button type="button" class="btn danger sm" id="mailOff">Stop sending</button>` : ''}</div>
+            <p class="hint">The test email goes to the office email below. After saving, the key box goes blank on purpose; it is kept safely.</p></form>`}
           <form id="sForm">
             <div class="card"><h2>Company details (on every RCTI)</h2><div class="grid g2 stack">
               ${f('company_name', 'Company name', 'required')}${f('company_abn', 'ABN')}${f('company_phone', 'Phone')}${f('company_email', 'Email (sender)', 'type="email"')}
@@ -702,15 +705,17 @@
             e.preventDefault();
             const body = { smtp_user: e.target.smtp_user.value };
             if (e.target.smtp_pass.value) body.smtp_pass = e.target.smtp_pass.value;
+            if (e.target.brevo_api_key.value) body.brevo_api_key = e.target.brevo_api_key.value;
+            const btn = e.target.querySelector('button.dark'); btn.disabled = true; btn.textContent = 'Sending test email...';
             try {
               await api('/api/settings/email', { method: 'PUT', body });
               const o = await api('/api/settings/test-email', { method: 'POST' });
-              if (o.ok && o.mode === 'smtp') toast('Email works. Test sent to the office email.');
-              else emailToast(o);
+              state.mailResult = o.ok && o.mode === 'smtp' ? { ok: true, text: 'Email works. A test email was sent to the office email.' }
+                : { ok: false, text: o.ok ? 'Nothing is connected yet, so the test was only saved in the Email log.' : 'Test email failed: ' + (o.error || o.reason || 'unknown error') };
               render();
-            } catch (err) { fail(err); }
+            } catch (err) { btn.disabled = false; btn.textContent = 'Save and send test email'; fail(err); }
           });
-          $('#mailOff', v) && ($('#mailOff', v).onclick = async () => { try { await api('/api/settings/email', { method: 'PUT', body: { smtp_pass: '' } }); toast('Email sending stopped'); render(); } catch (err) { fail(err); } });
+          $('#mailOff', v) && ($('#mailOff', v).onclick = async () => { try { await api('/api/settings/email', { method: 'PUT', body: { smtp_pass: '', brevo_api_key: '' } }); state.mailResult = null; toast('Email sending stopped'); render(); } catch (err) { fail(err); } });
           $('#logoForm', v).addEventListener('submit', async (e) => {
             e.preventDefault();
             try { await api('/api/settings/logo', { method: 'POST', body: new FormData(e.target) }); state.config = await api('/api/config'); toast('Logo updated'); render(); } catch (err) { fail(err); }
