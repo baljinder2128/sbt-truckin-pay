@@ -26,7 +26,7 @@
   const short = (s) => (s ? pd(s).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '');
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const addDays = (s, n) => { const d = pd(s); d.setDate(d.getDate() + n); return iso(d); };
-  const weekStart = (s) => { const d = pd(s); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d); };
+  const weekStart = (s) => { const d = pd(s); d.setDate(d.getDate() - d.getDay()); return iso(d); };
   const today = () => iso(new Date());
   const stamp = (s) => (s ? new Date(s.replace(' ', 'T') + 'Z').toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' }) : '');
   const toMin = (t) => { const m = /^(\d{1,2}):(\d{2})$/.exec(t || ''); return m ? +m[1] * 60 + +m[2] : null; };
@@ -312,7 +312,7 @@
           <div class="stat amber"><div class="k">Pending</div><div class="v">${money(sum.pending)}</div></div>
           <div class="stat dark"><div class="k">Cleared</div><div class="v">${money(sum.cleared)}</div></div>
         </div>
-        <div class="card flush"><div style="padding:16px 16px 0"><h2>By week</h2><p class="small muted" style="margin-top:-6px">Weeks run Monday to Sunday. Your rate includes GST if you're registered.</p></div>
+        <div class="card flush"><div style="padding:16px 16px 0"><h2>By week</h2><p class="small muted" style="margin-top:-6px">Weeks run Sunday to Saturday. Your rate includes GST if you're registered.</p></div>
           ${sum.weeks.length ? html`<ul class="list">${sum.weeks.map((w) => html`<li><div class="grow"><b>${short(w.week_start)} – ${short(w.week_end)}</b><div class="small muted">${w.days} day${w.days === 1 ? '' : 's'} · ${hrs(w.hours)} hrs</div><div style="margin-top:4px">${pill(w.status)}</div></div><div class="right"><div class="amount">${money(w.total)}</div>${w.paid && w.pending ? html`<div class="small muted">${money(w.paid)} paid</div>` : ''}</div></li>`)}</ul>` : html`<div class="empty">No pay yet. Submit your first runsheet to get started.</div>`}
         </div>
         <div class="card flush"><div style="padding:16px 16px 0"><h2>My RCTIs</h2></div>
@@ -413,7 +413,7 @@
             <a class="btn dark" href="#/rctis?week=${d.last_week.start}" style="margin-top:12px">Open last week's RCTIs</a></div>
           <div class="card"><h2>Quick links</h2><div class="actions">
             <a class="btn" href="#/runsheets?status=submitted">Review runsheets</a><a class="btn ghost" href="#/drivers">Drivers &amp; rates</a><a class="btn ghost" href="#/settings">Company details</a></div>
-            <p class="small muted" style="margin-top:14px">RCTIs are created automatically every Monday at 1am for the week just finished, and office copies are emailed. Driver copies wait here until you push them.</p></div>
+            <p class="small muted" style="margin-top:14px">RCTIs are created automatically every Sunday at 1am for the week just finished, and office copies are emailed. Driver copies wait here until you push them.</p></div>
         </div>`;
     },
 
@@ -682,7 +682,7 @@
             </div>${f('company_address', 'Address')}</div>
             <div class="card"><h2>Office copies</h2>${f('office_email', 'Office email for runsheets and RCTI copies', 'type="email"', 'Every submitted runsheet and every weekly RCTI batch is sent here.')}
               <label class="check"><input type="checkbox" name="auto_email_runsheets" ${s.auto_email_runsheets === '1' ? 'checked' : ''}> Email each runsheet to the office when a driver submits</label>
-              <label class="check" style="margin-top:8px"><input type="checkbox" name="auto_weekly_rcti" ${s.auto_weekly_rcti === '1' ? 'checked' : ''}> Create RCTIs automatically every Monday 1am (${s.timezone}) and email office copies</label></div>
+              <label class="check" style="margin-top:8px"><input type="checkbox" name="auto_weekly_rcti" ${s.auto_weekly_rcti === '1' ? 'checked' : ''}> Create RCTIs automatically every Sunday 1am (${s.timezone}) and email office copies</label></div>
             <div class="card"><h2>RCTI</h2><div class="grid g2 stack">${f('rcti_prefix', 'Number prefix')}${f('rcti_next_number', 'Next number', 'type="number" min="1"')}</div>
               <div class="field"><label>Payment terms</label><textarea name="payment_terms">${s.payment_terms}</textarea></div>
               <div class="field"><label>RCTI agreement wording</label><textarea name="rcti_agreement" style="min-height:120px">${s.rcti_agreement}</textarea><div class="hint">Printed on every RCTI. Have your accountant check it matches your written RCTI agreements with drivers.</div></div></div>

@@ -61,10 +61,10 @@ function addDays(s, n) {
   dt.setUTCDate(dt.getUTCDate() + n);
   return fmtDate(dt);
 }
-// Pay week is Monday to Sunday.
+// Pay week is Sunday to Saturday, so RCTIs can be made at 1am Sunday for the week just worked.
 function weekStart(s) {
   const dt = parseDate(s);
-  const dow = (dt.getUTCDay() + 6) % 7; // Mon=0
+  const dow = dt.getUTCDay(); // Sun=0
   dt.setUTCDate(dt.getUTCDate() - dow);
   return fmtDate(dt);
 }

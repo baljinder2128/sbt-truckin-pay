@@ -23,7 +23,7 @@ It runs as a website on any computer, and on Android it installs to the home scr
 
 **Automatic**
 - Each submitted runsheet is emailed to the office email with the photo attached.
-- Every Monday at 1am (Melbourne time) RCTIs are created for the week just finished (Monday to Sunday) and the office copies are emailed together.
+- Every Sunday at 1am (Melbourne time) RCTIs are created for the week just finished (Sunday to Saturday) and the office copies are emailed together.
 
 ## Run it
 
@@ -62,7 +62,7 @@ Copy `.env.example` to `.env`.
 1. Sign in at railway.com with GitHub, **New Project → Deploy from GitHub repo → sbt-truckin-pay**. It builds from the `Dockerfile`.
 2. Right-click the service box on the canvas → **Attach volume** → mount path `/data`. This keeps the database, photos and PDFs across restarts.
 3. Click the service → **Settings → Networking → Generate Domain**. That https link is the app for the office and drivers.
-4. Optional: **Settings → Serverless** on, so it sleeps when idle and stays inside the free $1 a month. If it's asleep at 1am Monday, the weekly RCTIs are created as soon as anyone opens it.
+4. Optional: **Settings → Serverless** on, so it sleeps when idle and stays inside the free $1 a month. If it's asleep at 1am Sunday, the weekly RCTIs are created as soon as anyone opens it.
 
 No Railway variables are needed. After the first login (`office@sbttruckin.com.au` / `ChangeMe123!`), change the password and add the Gmail app password in the app under **Settings**.
 
@@ -94,7 +94,7 @@ To put it in the **Google Play Store**, wrap the hosted site as a Trusted Web Ac
 - Paid hours = finish minus start. A finish earlier than start is treated as running past midnight.
 - Breaks are stored and shown on the runsheet, emails and RCTI, but never deducted.
 - Hours are rounded to 2 decimals, amounts to cents.
-- Pay week is Monday to Sunday.
+- Pay week is Sunday to Saturday.
 - GST at 10% is added on the RCTI only if the driver is marked GST registered.
 - Pending = everything not marked paid (uninvoiced runsheets include estimated GST). Cleared = RCTIs marked paid.
 

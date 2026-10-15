@@ -112,7 +112,7 @@ test('full pay flow', async () => {
   assert.ok(fs.readdirSync(path.join(process.env.DATA_DIR, 'outbox')).length >= 3);
 });
 
-test('weekly RCTI catches up once after the server slept through Monday', async () => {
+test('weekly RCTI catches up once after the server slept through Sunday 1am', async () => {
   const lastWeek = weekRange(addDays(weekRange(todayLocal()).start, -7));
   const d = db.prepare("SELECT id FROM users WHERE email = 'd@test.local'").get();
   db.prepare("INSERT INTO runsheets (driver_id, work_date, start_time, finish_time, hours, rate, amount) VALUES (?, ?, '06:00', '14:00', 8, 40, 320)").run(d.id, lastWeek.start);

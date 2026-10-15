@@ -26,8 +26,9 @@ test('bad times are rejected', () => {
   assert.throws(() => calcShift({ start_time: '10:00', finish_time: '10:00', rate: 1 }));
 });
 
-test('pay week is Monday to Sunday', () => {
-  assert.deepEqual(weekRange('2026-10-15'), { start: '2026-10-12', end: '2026-10-18' });
-  assert.deepEqual(weekRange('2026-10-18'), { start: '2026-10-12', end: '2026-10-18' });
-  assert.deepEqual(weekRange('2026-10-12'), { start: '2026-10-12', end: '2026-10-18' });
+test('pay week is Sunday to Saturday', () => {
+  assert.deepEqual(weekRange('2026-10-15'), { start: '2026-10-11', end: '2026-10-17' });
+  assert.deepEqual(weekRange('2026-10-11'), { start: '2026-10-11', end: '2026-10-17' });
+  assert.deepEqual(weekRange('2026-10-17'), { start: '2026-10-11', end: '2026-10-17' });
+  assert.deepEqual(weekRange('2026-10-18'), { start: '2026-10-18', end: '2026-10-24' });
 });

@@ -522,7 +522,7 @@ app.use((err, req, res, next) => {
 });
 
 // ---------- weekly RCTI run for the week just finished ----------
-// Runs Monday 1am, and also catches up on the next request or restart if the server was asleep then
+// Runs Sunday 1am, and also catches up on the next request or restart if the server was asleep then
 // (free hosts put idle apps to sleep). The last week done is remembered so it never runs twice.
 let weeklyBusy = false;
 async function weeklyRun() {
@@ -540,7 +540,7 @@ async function weeklyRun() {
   }
 }
 const runWeekly = () => weeklyRun().catch((e) => console.error('weekly run failed', e));
-cron.schedule('0 1 * * 1', runWeekly, { timezone: TZ });
+cron.schedule('0 1 * * 0', runWeekly, { timezone: TZ });
 
 if (require.main === module) {
   // Hosts route traffic to the PORT they set, but a domain can be pointed at another port by hand,
