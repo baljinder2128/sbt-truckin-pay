@@ -103,6 +103,23 @@
     return html`${top}<div class="shell"><nav class="side">${OFFICE_TABS.map(([p, t, i]) => html`<a href="#${p}" class="${r === p || (p === '/rctis' && r === '/rcti') || (p === '/drivers' && r === '/driver') || (p === '/runsheets' && r === '/runsheet') ? 'on' : ''}">${icon(i)}<span>${t}</span>${p === '/runsheets' && state.cache.toReview ? html`<span class="badge">${state.cache.toReview}</span>` : ''}</a>`)}</nav><main id="view">${content}</main></div>`;
   }
 
+  // Copy each column heading onto its cells so phones can show tables as labelled cards (see styles.css).
+  function labelTables(root) {
+    for (const t of root.querySelectorAll('.tablewrap table')) {
+      const heads = [...t.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+      for (const tr of t.querySelectorAll('tbody tr, tfoot tr')) {
+        let col = 0;
+        for (const td of tr.children) {
+          const span = Number(td.getAttribute('colspan') || 1);
+          if (span > 1 && span >= heads.length - 1) td.classList.add('full');
+          else if (span === 1 && heads[col]) td.dataset.label = heads[col];
+          col += span;
+        }
+      }
+    }
+  }
+  new MutationObserver(() => labelTables(document)).observe(document.getElementById('app'), { childList: true, subtree: true });
+
   async function render() {
     const app = $('#app');
     if (!state.me) { app.innerHTML = loginView(); bindLogin(); return; }
