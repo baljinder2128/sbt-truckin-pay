@@ -542,6 +542,11 @@ const runWeekly = () => weeklyRun().catch((e) => console.error('weekly run faile
 cron.schedule('0 1 * * 1', runWeekly, { timezone: TZ });
 
 if (require.main === module) {
-  app.listen(PORT, () => console.log(`SB Truckin pay app on http://localhost:${PORT}  (TZ ${TZ}, email ${smtpConfigured() ? 'SMTP' : 'outbox only'}, photo reading ${extractionEnabled ? 'on' : 'off'})`));
+  // Hosts route traffic to the PORT they set, but a domain can be pointed at another port by hand,
+  // so also answer on the common ones (3000 and 8080).
+  for (const port of new Set([PORT, 3000, 8080])) {
+    app.listen(port, '0.0.0.0', () => console.log(`SB Truckin pay app listening on port ${port}`)).on('error', (e) => console.error(`port ${port}: ${e.message}`));
+  }
+  console.log(`TZ ${TZ}, email ${smtpConfigured() ? 'SMTP' : 'outbox only'}, photo reading ${extractionEnabled ? 'on' : 'off'}, data in ${DATA_DIR}`);
 }
 module.exports = { app, weeklyRun };
