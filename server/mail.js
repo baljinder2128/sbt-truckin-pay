@@ -39,7 +39,10 @@ function getTransport() {
 
 function fromAddress() {
   const s = getSettings();
-  return process.env.MAIL_FROM || (s.company_email ? `"${s.company_name}" <${s.company_email}>` : 'SB Truckin <no-reply@localhost>');
+  if (process.env.MAIL_FROM) return process.env.MAIL_FROM;
+  // Gmail only sends as the account that logs in, so use that address when it's set in Settings.
+  const addr = (!process.env.SMTP_HOST && s.smtp_pass && s.smtp_user) || s.company_email;
+  return addr ? `"${s.company_name}" <${addr}>` : 'SB Truckin <no-reply@localhost>';
 }
 
 async function sendMail({ to, subject, html, text, attachments = [] }) {
