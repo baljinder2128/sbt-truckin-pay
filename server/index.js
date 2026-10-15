@@ -511,7 +511,7 @@ app.post('/api/rctis/:id/paid', auth('office'), (req, res) => {
 app.get('/api/email-log', auth('office'), (req, res) => res.json(db.prepare('SELECT * FROM email_log ORDER BY id DESC LIMIT 200').all()));
 
 // ---------- static web app ----------
-app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h', setHeaders: (res, p) => { if (p.endsWith('sw.js') || p.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
+app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h', setHeaders: (res, p) => { if (/\.(html|js|css|webmanifest)$/.test(p)) res.setHeader('Cache-Control', 'no-cache'); // phones check for app updates on every open } }));
 app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
 app.use((err, req, res, next) => {
