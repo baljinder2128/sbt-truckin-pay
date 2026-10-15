@@ -103,8 +103,8 @@ const DEFAULT_SETTINGS = {
   company_abn: '62 604 022 255',
   company_address: '',
   company_phone: '',
-  company_email: 'sbtpayadvice@gmail.com',
-  office_email: 'sbtpayadvice@gmail.com',
+  company_email: 'baljinder2128@gmail.com',
+  office_email: 'baljinder2128@gmail.com',
   rcti_prefix: 'RCTI-',
   rcti_next_number: '1001',
   payment_terms: 'Payment by EFT to the nominated account within 7 days of the RCTI issue date.',
@@ -116,11 +116,16 @@ const DEFAULT_SETTINGS = {
   last_auto_rcti_week: '',
   smtp_host: 'smtp.gmail.com',
   smtp_port: '465',
-  smtp_user: 'sbtpayadvice@gmail.com',
+  smtp_user: 'baljinder2128@gmail.com',
   smtp_pass: '',
 };
 const insertDefault = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
 for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insertDefault.run(k, v);
+
+// Move installs still on the first Gmail address (it couldn't be recovered) to the new one, unless changed by hand.
+for (const k of ['smtp_user', 'company_email', 'office_email']) {
+  db.prepare("UPDATE settings SET value = 'baljinder2128@gmail.com' WHERE key = ? AND value = 'sbtpayadvice@gmail.com'").run(k);
+}
 
 function getSettings() {
   const out = {};
