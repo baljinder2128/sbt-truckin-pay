@@ -11,6 +11,13 @@ const money = (n) => '$' + Number(n || 0).toLocaleString('en-AU', { minimumFract
 const dayName = (s) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(s + 'T00:00:00Z').getUTCDay()];
 const auDate = (s) => (s ? s.split('-').reverse().join('/') : '');
 
+// Driver hourly rates are GST inclusive, so for a GST-registered driver the GST is the 1/11 share of the total.
+function splitGst(amount, gstRegistered) {
+  const total = round2(amount);
+  const gst = gstRegistered ? round2(total / 11) : 0;
+  return { subtotal: round2(total - gst), gst, total };
+}
+
 function nextNumber() {
   const s = getSettings();
   const n = Number(s.rcti_next_number || 1001);
@@ -32,9 +39,7 @@ function generateForPeriod(start, end, driverId = null) {
     if (!sheets.length) continue;
     const id = tx(() => {
       const totalHours = round2(sheets.reduce((s, r) => s + r.hours, 0));
-      const subtotal = round2(sheets.reduce((s, r) => s + r.amount, 0));
-      const gst = d.gst_registered ? round2(subtotal * 0.1) : 0;
-      const total = round2(subtotal + gst);
+      const { subtotal, gst, total } = splitGst(sheets.reduce((s, r) => s + r.amount, 0), d.gst_registered);
       const r = db
         .prepare('INSERT INTO rctis (number, driver_id, period_start, period_end, issue_date, total_hours, subtotal, gst, total) VALUES (?,?,?,?,?,?,?,?,?)')
         .run(nextNumber(), d.id, start, end, todayLocal(), totalHours, subtotal, gst, total);
@@ -60,9 +65,8 @@ function rebuild(rctiId) {
     db.prepare("UPDATE runsheets SET rcti_id = NULL WHERE rcti_id = ? AND status = 'rejected'").run(rctiId);
     const sheets = db.prepare('SELECT * FROM runsheets WHERE rcti_id = ?').all(rctiId);
     const totalHours = round2(sheets.reduce((s, x) => s + x.hours, 0));
-    const subtotal = round2(sheets.reduce((s, x) => s + x.amount, 0));
-    const gst = d.gst_registered ? round2(subtotal * 0.1) : 0;
-    db.prepare('UPDATE rctis SET total_hours=?, subtotal=?, gst=?, total=?, issue_date=? WHERE id=?').run(totalHours, subtotal, gst, round2(subtotal + gst), todayLocal(), rctiId);
+    const { subtotal, gst, total } = splitGst(sheets.reduce((s, x) => s + x.amount, 0), d.gst_registered);
+    db.prepare('UPDATE rctis SET total_hours=?, subtotal=?, gst=?, total=?, issue_date=? WHERE id=?').run(totalHours, subtotal, gst, total, todayLocal(), rctiId);
   });
   renderPdf(rctiId);
 }
@@ -170,7 +174,7 @@ function renderPdf(rctiId) {
   y += 4;
   tot('TOTAL PAYABLE', money(r.total), true);
   doc.fillColor('#6B7480').font('Helvetica').fontSize(7.5)
-    .text('* Breaks are recorded from the runsheet for reference only. Paid hours run from start to finish as per runsheet.', L, y + 4, { width: R - L });
+    .text('* Breaks are recorded from the runsheet for reference only. Paid hours run from start to finish as per runsheet. Rates and amounts include GST where the supplier is registered.', L, y + 4, { width: R - L });
   y = doc.y + 14;
 
   // Payment details

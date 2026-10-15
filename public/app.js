@@ -171,7 +171,7 @@
           <div class="grid g3">
             <div><div class="muted small">Days</div><div class="amount">${tw.days}</div></div>
             <div><div class="muted small">Hours</div><div class="amount">${hrs(tw.hours)}</div></div>
-            <div><div class="muted small">Earned ex GST</div><div class="amount">${money(tw.subtotal)}</div></div>
+            <div><div class="muted small">Earned</div><div class="amount">${money(tw.subtotal)}</div></div>
           </div>
         </div>
         ${submittedToday ? html`<div class="notice ok">Today's runsheet is in. Nice work.</div>` : html`<a href="#/submit" class="btn block xl" style="margin-bottom:16px">${icon('camera')} Submit today's runsheet</a>`}
@@ -191,7 +191,7 @@
             <dt>Start</dt><dd>${r.start_time}</dd><dt>Finish</dt><dd>${r.finish_time}</dd>
             <dt>Paid hours</dt><dd><b>${hrs(r.hours)}</b> (start to finish)</dd>
             <dt>Breaks</dt><dd>${r.breaks.length ? r.breaks.map((b) => `${b.start}–${b.end}`).join(', ') + ` · ${r.break_minutes} min (not deducted)` : 'None'}</dd>
-            <dt>Rate</dt><dd>${money(r.rate)}/hr</dd><dt>Amount</dt><dd><b>${money(r.amount)}</b> ex GST</dd>
+            <dt>Rate</dt><dd>${money(r.rate)}/hr</dd><dt>Amount</dt><dd><b>${money(r.amount)}</b></dd>
             ${r.truck_rego ? html`<dt>Truck</dt><dd>${r.truck_rego}</dd>` : ''}
             ${r.notes ? html`<dt>Your notes</dt><dd>${r.notes}</dd>` : ''}
             ${r.office_notes ? html`<dt>Office notes</dt><dd>${r.office_notes}</dd>` : ''}
@@ -244,7 +244,7 @@
               <div class="small" style="color:#c5ccd3;text-transform:uppercase;letter-spacing:.08em;font-weight:700">Paid hours</div>
               <div class="big">${hrs(m / 60)}</div>
               <div class="row"><span>${form.start_time.value} → ${form.finish_time.value}${m && toMin(form.finish_time.value) < toMin(form.start_time.value) ? ' (overnight)' : ''}</span><span>Breaks ${bm} min · not deducted</span></div>
-              ${rate ? html`<div class="row"><span>@ ${money(rate)}/hr</span><span style="color:#fff;font-weight:700">${money(Math.round(m / 60 * 100) / 100 * rate)} ex GST</span></div>` : ''}`.s;
+              ${rate ? html`<div class="row"><span>@ ${money(rate)}/hr</span><span style="color:#fff;font-weight:700">${money(Math.round(m / 60 * 100) / 100 * rate)}</span></div>` : ''}`.s;
           };
           ['start_time', 'finish_time'].forEach((n) => form[n].addEventListener('input', calc));
           $('#addBreak', v).onclick = () => addBreak();
@@ -296,7 +296,7 @@
               const r = await api('/api/runsheets', { method: 'POST', body });
               v.innerHTML = html`<div class="card" style="text-align:center;padding:30px 18px">
                 <div style="font-size:54px">✅</div><h1>Runsheet submitted</h1>
-                <p><b>${hrs(r.hours)} hours</b> on ${nice(r.work_date)} · ${money(r.amount)} ex GST</p>
+                <p><b>${hrs(r.hours)} hours</b> on ${nice(r.work_date)} · ${money(r.amount)}</p>
                 <p class="muted small">A copy has gone to the office.</p>
                 <div class="actions" style="justify-content:center;margin-top:16px"><a class="btn" href="#/">Done</a><a class="btn ghost" href="#/runsheet/${r.id}">View</a></div></div>`.s;
             } catch (err) { fail(err); $('#submitBtn', v).disabled = false; }
@@ -312,7 +312,7 @@
           <div class="stat amber"><div class="k">Pending</div><div class="v">${money(sum.pending)}</div></div>
           <div class="stat dark"><div class="k">Cleared</div><div class="v">${money(sum.cleared)}</div></div>
         </div>
-        <div class="card flush"><div style="padding:16px 16px 0"><h2>By week</h2><p class="small muted" style="margin-top:-6px">Weeks run Monday to Sunday. Totals include GST if you're registered.</p></div>
+        <div class="card flush"><div style="padding:16px 16px 0"><h2>By week</h2><p class="small muted" style="margin-top:-6px">Weeks run Monday to Sunday. Your rate includes GST if you're registered.</p></div>
           ${sum.weeks.length ? html`<ul class="list">${sum.weeks.map((w) => html`<li><div class="grow"><b>${short(w.week_start)} – ${short(w.week_end)}</b><div class="small muted">${w.days} day${w.days === 1 ? '' : 's'} · ${hrs(w.hours)} hrs</div><div style="margin-top:4px">${pill(w.status)}</div></div><div class="right"><div class="amount">${money(w.total)}</div>${w.paid && w.pending ? html`<div class="small muted">${money(w.paid)} paid</div>` : ''}</div></li>`)}</ul>` : html`<div class="empty">No pay yet. Submit your first runsheet to get started.</div>`}
         </div>
         <div class="card flush"><div style="padding:16px 16px 0"><h2>My RCTIs</h2></div>
@@ -328,7 +328,7 @@
           <div class="card"><h2>Details on your RCTI</h2><dl class="kv">
             <dt>Name</dt><dd>${me.name}</dd><dt>Business</dt><dd>${me.business_name || '—'}</dd><dt>ABN</dt><dd>${me.abn || '—'}</dd>
             <dt>GST</dt><dd>${me.gst_registered ? 'Registered' : 'Not registered'}</dd><dt>Address</dt><dd>${me.address || '—'}</dd>
-            <dt>Hourly rate</dt><dd>${money(me.hourly_rate)}/hr ex GST</dd></dl></div>
+            <dt>Hourly rate</dt><dd>${money(me.hourly_rate)}/hr incl. GST</dd></dl></div>
           <div class="card"><h2>Pay into</h2><dl class="kv"><dt>Account name</dt><dd>${me.bank_account_name || '—'}</dd><dt>BSB</dt><dd>${me.bank_bsb || '—'}</dd><dt>Account</dt><dd>${me.bank_account_number ? '•••• ' + me.bank_account_number.slice(-4) : '—'}</dd></dl>
             <p class="small muted">To change any of these, contact the SB Truckin office.</p></div>
           ${passwordCard()}`,
@@ -408,7 +408,7 @@
         </div>
         <div class="grid g2 stack">
           <div class="card"><h2>Last week</h2><p class="muted" style="margin-top:-6px">${short(d.last_week.start)} – ${short(d.last_week.end)}</p>
-            <div class="grid g2"><div><div class="muted small">Hours</div><div class="amount">${hrs(d.last_week.hours)}</div></div><div><div class="muted small">Ex GST</div><div class="amount">${money(d.last_week.amount)}</div></div></div>
+            <div class="grid g2"><div><div class="muted small">Hours</div><div class="amount">${hrs(d.last_week.hours)}</div></div><div><div class="muted small">Amount</div><div class="amount">${money(d.last_week.amount)}</div></div></div>
             ${d.uninvoiced_past ? html`<div class="notice warn" style="margin-top:14px">${d.uninvoiced_past} runsheet(s) from past weeks are not on an RCTI yet.</div>` : ''}
             <a class="btn dark" href="#/rctis?week=${d.last_week.start}" style="margin-top:12px">Open last week's RCTIs</a></div>
           <div class="card"><h2>Quick links</h2><div class="actions">
@@ -626,13 +626,13 @@
               <div class="field"><label>${isNew ? 'Starting password' : 'Reset password'}</label><input name="password" type="text" ${isNew ? 'required minlength="8"' : 'minlength="8" placeholder="Leave blank to keep"'} autocomplete="off"><div class="hint">At least 8 characters. Give this to the driver.</div></div>
             </div><label class="check"><input type="checkbox" name="active" ${d.active ? 'checked' : ''}> Active (can log in and submit)</label></div>
             <div class="card"><h2>Pay rate</h2><div class="grid g2 stack">
-              ${f('hourly_rate', 'Hourly rate ($ ex GST)', 'type="number" step="0.01" min="0" required')}
+              ${f('hourly_rate', 'Hourly rate ($ incl. GST)', 'type="number" step="0.01" min="0" required')}
               ${isNew ? '' : html`<div class="field"><label>&nbsp;</label><label class="check"><input type="checkbox" name="apply_rate_to_open"> Apply new rate to runsheets not yet on an RCTI</label></div>`}
             </div></div>
             <div class="card"><h2>Company details for RCTI</h2><div class="grid g2 stack">
               ${f('business_name', 'Business / trading name', '', 'Leave blank if they trade under their own name')}${f('abn', 'ABN', 'inputmode="numeric"', '11 digits')}
             </div>${f('address', 'Business address')}
-            <label class="check"><input type="checkbox" name="gst_registered" ${d.gst_registered ? 'checked' : ''}> Registered for GST (adds 10% GST on RCTI)</label></div>
+            <label class="check"><input type="checkbox" name="gst_registered" ${d.gst_registered ? 'checked' : ''}> Registered for GST (the RCTI shows the GST inside the rate)</label></div>
             <div class="card"><h2>Nominated bank account</h2><div class="grid g3 stack">
               ${f('bank_account_name', 'Account name')}${f('bank_bsb', 'BSB', 'inputmode="numeric" placeholder="000-000"')}${f('bank_account_number', 'Account number', 'inputmode="numeric"')}
             </div></div>

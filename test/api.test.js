@@ -72,16 +72,17 @@ test('full pay flow', async () => {
 
   // Pending before RCTI: (440 + 320) * 1.1
   let sum = (await driver('GET', '/api/pay/summary')).body;
-  assert.equal(sum.pending, 836);
+  assert.equal(sum.pending, 760);
   assert.equal(sum.cleared, 0);
 
   const gen = await office('POST', '/api/rctis/generate', { week: '2026-10-08' });
   assert.equal(gen.body.created, 1);
   const rid = gen.body.ids[0];
   const r = (await office('GET', `/api/rctis/${rid}`)).body;
-  assert.equal(r.subtotal, 760);
-  assert.equal(r.gst, 76);
-  assert.equal(r.total, 836);
+  // $40/hr is GST inclusive: 19h = $760 total, of which GST is 1/11.
+  assert.equal(r.total, 760);
+  assert.equal(r.gst, 69.09);
+  assert.equal(r.subtotal, 690.91);
   assert.equal(r.total_hours, 19);
 
   // Driver can't see it until pushed
@@ -95,11 +96,11 @@ test('full pay flow', async () => {
 
   // Edit after RCTI re-totals it
   await office('PUT', `/api/runsheets/${rs.body.id}`, { rate: 50 });
-  assert.equal((await office('GET', `/api/rctis/${rid}`)).body.subtotal, 870);
+  assert.equal((await office('GET', `/api/rctis/${rid}`)).body.total, 870);
 
   await office('POST', `/api/rctis/${rid}/paid`, { payment_ref: 'EFT1' });
   sum = (await driver('GET', '/api/pay/summary')).body;
-  assert.equal(sum.cleared, 957);
+  assert.equal(sum.cleared, 870);
   assert.equal(sum.pending, 0);
   assert.equal(sum.weeks[0].status, 'paid');
 

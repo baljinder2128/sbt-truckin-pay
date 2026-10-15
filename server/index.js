@@ -88,7 +88,7 @@ async function emailRunsheetToOffice(id) {
       <tr><td><b>Start / Finish</b></td><td>${r.start_time} – ${r.finish_time}</td></tr>
       <tr><td><b>Paid hours</b></td><td>${r.hours.toFixed(2)} (start to finish)</td></tr>
       <tr><td><b>Breaks (not deducted)</b></td><td>${br.length ? br.map((b) => `${b.start}–${b.end}`).join(', ') + ` (${r.break_minutes} min)` : 'None'}</td></tr>
-      <tr><td><b>Rate / Amount</b></td><td>${rcti.money(r.rate)}/hr · ${rcti.money(r.amount)} ex GST</td></tr>
+      <tr><td><b>Rate / Amount</b></td><td>${rcti.money(r.rate)}/hr · ${rcti.money(r.amount)} incl. any GST</td></tr>
       ${r.truck_rego ? `<tr><td><b>Truck</b></td><td>${esc(r.truck_rego)}</td></tr>` : ''}
       ${r.notes ? `<tr><td><b>Driver notes</b></td><td>${esc(r.notes)}</td></tr>` : ''}
     </table><p style="color:#666;font-size:12px">Runsheet photo attached. Review or edit it in the SB Truckin pay app.</p></div>`;
@@ -296,8 +296,8 @@ function driverWeeks(driverId, officeView) {
     const rs = [...w.rctis.values()];
     const invoicedTotal = rs.reduce((a, r) => a + r.total, 0);
     const paidTotal = rs.filter((r) => r.paid_at).reduce((a, r) => a + r.total, 0);
-    const estGst = d.gst_registered ? w.uninvoiced * 0.1 : 0;
-    const total = round2(invoicedTotal + w.uninvoiced + estGst);
+    // Rates are GST inclusive, so runsheet amounts are already the full amount payable.
+    const total = round2(invoicedTotal + w.uninvoiced);
     let status;
     if (rs.length && rs.every((r) => r.paid_at) && !w.uninvoiced) status = 'paid';
     else if (w.week_start >= thisWeek) status = 'in_progress';
