@@ -44,9 +44,16 @@ function sender() {
   return { name: s.company_name, email: s.smtp_user || s.company_email };
 }
 
+// Replies go to the office's own mailbox when the sending address is a Brevo one.
+function replyTo() {
+  const s = getSettings();
+  const email = s.company_email || s.office_email;
+  return email && email !== sender().email ? { email } : undefined;
+}
+
 async function sendBrevo(key, { to, subject, html, text, attachments }) {
   const body = {
-    sender: sender(), to: String(to).split(',').map((e) => ({ email: e.trim() })).filter((x) => x.email), subject,
+    sender: sender(), replyTo: replyTo(), to: String(to).split(',').map((e) => ({ email: e.trim() })).filter((x) => x.email), subject,
     htmlContent: html || undefined, textContent: html ? undefined : text,
     attachment: attachments.length ? attachments.map((a) => ({ name: a.filename, content: (a.content ? Buffer.from(a.content) : fs.readFileSync(a.path)).toString('base64') })) : undefined,
   };

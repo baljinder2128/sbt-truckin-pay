@@ -670,7 +670,7 @@
           </div>
           ${s.smtp_from_env || s.brevo_from_env ? '' : html`<form class="card" id="mailForm"><h2>Email account (sends runsheets and RCTIs)</h2>
             ${state.mailResult ? html`<div class="notice ${state.mailResult.ok ? 'ok' : 'warn'}">${state.mailResult.text}</div>` : ''}
-            <div class="grid g2 stack"><div class="field"><label>Send from (email address)</label><input name="smtp_user" type="email" value="${s.smtp_user || ''}" required><div class="hint">Must be the address you confirmed in Brevo.</div></div>
+            <div class="grid g2 stack"><div class="field"><label>Send from (email address)</label><input name="smtp_user" type="email" value="${s.smtp_user || ''}" required><div class="hint">Must be a sender Brevo accepts (a Gmail address will not work). Replies go to the company email below.</div></div>
               <div class="field"><label>Brevo API key</label><input name="brevo_api_key" type="password" autocomplete="off" placeholder="${s.brevo_key_set ? 'Saved. Paste a new one to replace it' : 'Starts with xkeysib-'}"><div class="hint">Free at brevo.com. In Brevo open SMTP &amp; API, then API Keys, and create a key called SB Pay.</div></div></div>
             <details style="margin:4px 0 12px"><summary class="small muted">Use a Gmail app password instead (only works on paid hosting)</summary>
               <div class="field" style="margin-top:8px"><label>Gmail app password</label><input name="smtp_pass" type="password" autocomplete="new-password" placeholder="${s.smtp_pass_set ? 'Saved. Type a new one to replace it' : '16 letters from Google'}"></div></details>
