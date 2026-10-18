@@ -55,10 +55,10 @@ function generateForPeriod(start, end, driverId = null) {
 }
 
 // Recalculate an unpaid RCTI after office edits (keeps its number). Picks up late runsheets in the period too.
-function rebuild(rctiId) {
+function rebuild(rctiId, { force = false } = {}) {
   const r = db.prepare('SELECT * FROM rctis WHERE id = ?').get(rctiId);
   if (!r) throw new Error('RCTI not found');
-  if (r.paid_at) throw new Error('This RCTI is marked paid. Mark it unpaid first to change it.');
+  if (r.paid_at && !force) throw new Error('This RCTI is marked paid. Mark it unpaid first to change it.');
   const d = db.prepare('SELECT * FROM users WHERE id = ?').get(r.driver_id);
   tx(() => {
     db.prepare("UPDATE runsheets SET rcti_id = ? WHERE driver_id = ? AND work_date BETWEEN ? AND ? AND rcti_id IS NULL AND status != 'rejected'").run(rctiId, r.driver_id, r.period_start, r.period_end);

@@ -104,9 +104,6 @@ test('full pay flow', async () => {
   assert.equal(sum.pending, 0);
   assert.equal(sum.weeks[0].status, 'paid');
 
-  // Paid RCTI locks its runsheets
-  assert.equal((await office('PUT', `/api/runsheets/${rs.body.id}`, { rate: 60 })).status, 400);
-
   const log = (await office('GET', '/api/email-log')).body;
   assert.ok(log.some((l) => l.subject.startsWith('RCTI')), 'RCTI office copy logged');
   assert.ok(fs.readdirSync(path.join(process.env.DATA_DIR, 'outbox')).length >= 3);
@@ -163,4 +160,21 @@ test('a Brevo key in Settings sends email over HTTPS and is never shown again', 
     await office('PUT', '/api/settings/email', { brevo_api_key: '' });
   }
   assert.equal((await office('GET', '/api/settings')).body.smtp, false);
+});
+
+test('office can still edit and delete a runsheet on a paid RCTI, and the RCTI re-totals', async () => {
+  const office = client();
+  await office('POST', '/api/login', { email: 'boss@test.local', password: 'OfficePass1' });
+  const paid = db.prepare('SELECT * FROM rctis WHERE paid_at IS NOT NULL ORDER BY id LIMIT 1').get();
+  assert.ok(paid, 'test needs a paid RCTI from the earlier flow');
+  const sheets = db.prepare('SELECT * FROM runsheets WHERE rcti_id = ? ORDER BY id').all(paid.id);
+  const edit = await office('PUT', `/api/runsheets/${sheets[0].id}`, { start_time: '06:00', finish_time: '16:00' });
+  assert.equal(edit.status, 200);
+  assert.equal(edit.body.hours, 10);
+  const after = db.prepare('SELECT * FROM rctis WHERE id = ?').get(paid.id);
+  assert.equal(after.total, Math.round(sheets.reduce((a, s, i) => a + (i === 0 ? 10 * s.rate : s.amount), 0) * 100) / 100);
+  assert.ok(after.paid_at, 'stays marked paid');
+  const del = await office('DELETE', `/api/runsheets/${sheets[0].id}`);
+  assert.equal(del.status, 200);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM runsheets WHERE id = ?').get(sheets[0].id).n, 0);
 });

@@ -126,10 +126,10 @@ function esc(s) {
 }
 
 // If a runsheet change affects an unpaid RCTI, re-total it.
+// The office can always change a runsheet, so its RCTI is re-totalled even if already marked paid.
 function refreshRctiFor(rctiId) {
   if (!rctiId) return;
-  const r = db.prepare('SELECT * FROM rctis WHERE id = ?').get(rctiId);
-  if (r && !r.paid_at) rcti.rebuild(rctiId);
+  if (db.prepare('SELECT id FROM rctis WHERE id = ?').get(rctiId)) rcti.rebuild(rctiId, { force: true });
 }
 
 // ---------- auth ----------
@@ -233,10 +233,6 @@ app.get('/api/runsheets/:id/photo', auth(), (req, res) => {
 app.put('/api/runsheets/:id', auth('office'), (req, res) => {
   const r = loadRunsheet(req);
   const b = req.body || {};
-  if (r.rcti_id) {
-    const x = db.prepare('SELECT paid_at FROM rctis WHERE id = ?').get(r.rcti_id);
-    if (x && x.paid_at) throw bad('This runsheet is on a paid RCTI. Mark the RCTI unpaid first.');
-  }
   const calc = calcShift({
     start_time: b.start_time ?? r.start_time,
     finish_time: b.finish_time ?? r.finish_time,
@@ -260,10 +256,6 @@ app.put('/api/runsheets/:id', auth('office'), (req, res) => {
 
 app.delete('/api/runsheets/:id', auth('office'), (req, res) => {
   const r = loadRunsheet(req);
-  if (r.rcti_id) {
-    const x = db.prepare('SELECT paid_at FROM rctis WHERE id = ?').get(r.rcti_id);
-    if (x && x.paid_at) throw bad('This runsheet is on a paid RCTI.');
-  }
   db.prepare('DELETE FROM runsheets WHERE id = ?').run(r.id);
   if (r.rcti_id) {
     const left = db.prepare('SELECT COUNT(*) n FROM runsheets WHERE rcti_id = ?').get(r.rcti_id).n;

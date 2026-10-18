@@ -452,9 +452,9 @@
               <button class="btn sm dark" id="addRs">+ Enter runsheet</button>
             </div></div>
           <div class="card flush"><div class="tablewrap"><table>
-            <thead><tr><th>Date</th><th>Driver</th><th>Start</th><th>Finish</th><th>Breaks</th><th class="num">Hours</th><th class="num">Rate</th><th class="num">Amount</th><th>Status</th><th>RCTI</th></tr></thead>
-            <tbody>${rows.length ? rows.map((r) => html`<tr class="click" data-go="#/runsheet/${r.id}"><td class="nowrap">${nice(r.work_date)}</td><td>${r.driver_name}</td><td>${r.start_time}</td><td>${r.finish_time}</td><td class="muted">${r.break_minutes ? r.break_minutes + ' min' : '—'}</td><td class="num">${hrs(r.hours)}</td><td class="num">${money(r.rate)}</td><td class="num">${money(r.amount)}</td><td>${pill(r.status)}</td><td class="small">${r.rcti_number ? r.rcti_number + (r.rcti_paid_at ? ' ✓' : '') : '—'}</td></tr>`) : html`<tr><td colspan="10" class="empty">No runsheets match.</td></tr>`}</tbody>
-            ${rows.length ? html`<tfoot><tr><td colspan="5">${rows.length} runsheets (excl. rejected in totals)</td><td class="num">${hrs(tot.h)}</td><td></td><td class="num">${money(tot.m)}</td><td colspan="2"></td></tr></tfoot>` : ''}
+            <thead><tr><th>Date</th><th>Driver</th><th>Start</th><th>Finish</th><th>Breaks</th><th class="num">Hours</th><th class="num">Rate</th><th class="num">Amount</th><th>Status</th><th>RCTI</th><th></th></tr></thead>
+            <tbody>${rows.length ? rows.map((r) => html`<tr class="click" data-go="#/runsheet/${r.id}"><td class="nowrap">${nice(r.work_date)}</td><td>${r.driver_name}</td><td>${r.start_time}</td><td>${r.finish_time}</td><td class="muted">${r.break_minutes ? r.break_minutes + ' min' : '—'}</td><td class="num">${hrs(r.hours)}</td><td class="num">${money(r.rate)}</td><td class="num">${money(r.amount)}</td><td>${pill(r.status)}</td><td class="small">${r.rcti_number ? r.rcti_number + (r.rcti_paid_at ? ' ✓' : '') : '—'}</td><td class="nowrap"><a class="btn sm ghost" href="#/runsheet/${r.id}">Edit</a> <button type="button" class="btn sm danger" data-del="${r.id}">Delete</button></td></tr>`) : html`<tr><td colspan="11" class="empty">No runsheets match.</td></tr>`}</tbody>
+            ${rows.length ? html`<tfoot><tr><td colspan="5">${rows.length} runsheets (excl. rejected in totals)</td><td class="num">${hrs(tot.h)}</td><td></td><td class="num">${money(tot.m)}</td><td colspan="3"></td></tr></tfoot>` : ''}
           </table></div></div>`,
         bind(v) {
           $$('[data-f]', v).forEach((el) => el.addEventListener('change', () => {
@@ -466,17 +466,18 @@
           }));
           bindRows(v);
           $('#addRs', v).onclick = () => officeEntryDialog(ds);
+          $$('[data-del]', v).forEach((b) => (b.onclick = () => deleteRunsheet(rows.find((x) => String(x.id) === b.dataset.del), render)));
         },
       };
     },
 
     async runsheet(id) {
       const r = await api('/api/runsheets/' + id);
-      const locked = r.rcti_id && (await api('/api/rctis/' + r.rcti_id)).paid_at;
+      const paidRcti = r.rcti_id && (await api('/api/rctis/' + r.rcti_id)).paid_at;
       return {
         html: html`<a href="#/runsheets" class="muted small">← Runsheets</a>
           <div class="toolbar" style="margin-top:8px"><h1 style="margin:0">${r.driver_name} · ${nice(r.work_date)}</h1><div>${pill(r.status)}</div></div>
-          ${locked ? html`<div class="notice info">This runsheet is on a paid RCTI, so it's locked. Mark the RCTI unpaid to change it.</div>` : ''}
+          ${paidRcti ? html`<div class="notice warn">This runsheet is on an RCTI that's already marked paid. You can still change or delete it, and the RCTI total will update, so check what was paid.</div>` : ''}
           <div class="split">
             <div>${r.has_photo ? html`<div class="photo-frame"><img src="/api/runsheets/${r.id}/photo" alt="Runsheet photo" onclick="window.open(this.src)"></div><p class="small muted">Tap the photo to open it full size.</p>` : html`<div class="card empty">No runsheet photo attached</div>`}
               ${r.extracted ? html`<div class="card small"><b>Read from photo:</b> ${r.extracted.start_time || '?'} – ${r.extracted.finish_time || '?'}, breaks ${(r.extracted.breaks || []).map((b) => `${b.start}–${b.end}`).join(', ') || 'none'} (${r.extracted.confidence} confidence)</div>` : ''}
@@ -492,8 +493,8 @@
               <div class="field"><label>Driver notes</label><textarea name="notes">${r.notes || ''}</textarea></div>
               <div class="field"><label>Office notes <span class="muted">(driver can see these)</span></label><textarea name="office_notes">${r.office_notes || ''}</textarea></div>
               <div class="field"><label>Status</label><select name="status">${['submitted', 'approved', 'rejected'].map((s) => html`<option value="${s}" ${r.status === s ? 'selected' : ''}>${STATUS[s]}</option>`)}</select></div>
-              <div class="actions"><button class="btn" ${locked ? 'disabled' : ''}>Save changes</button>${r.status !== 'approved' && !locked ? html`<button type="button" class="btn green" id="approve">Approve</button>` : ''}
-                <button type="button" class="btn ghost sm" id="resend">Email to office</button><button type="button" class="btn danger sm" id="del" ${locked ? 'disabled' : ''}>Delete</button></div>
+              <div class="actions"><button class="btn">Save changes</button>${r.status !== 'approved' ? html`<button type="button" class="btn green" id="approve">Approve</button>` : ''}
+                <button type="button" class="btn ghost sm" id="resend">Email to office</button><button type="button" class="btn danger sm" id="del">Delete</button></div>
               <p class="small muted" style="margin-top:12px">Submitted ${stamp(r.submitted_at)}${r.office_emailed_at ? ` · emailed to office ${stamp(r.office_emailed_at)}` : ''}${r.rcti_id ? ' · on an RCTI (saving re-totals it)' : ''}</p>
             </form>
           </div>`,
@@ -523,10 +524,7 @@
           f.addEventListener('submit', async (e) => { e.preventDefault(); try { await save(); toast('Saved'); render(); } catch (err) { fail(err); } });
           $('#approve', v) && ($('#approve', v).onclick = async () => { try { await save({ status: 'approved' }); toast('Approved'); render(); } catch (err) { fail(err); } });
           $('#resend', v).onclick = async () => { try { const o = await api(`/api/runsheets/${r.id}/email-office`, { method: 'POST' }); emailToast(o); } catch (err) { fail(err); } };
-          $('#del', v).onclick = async () => {
-            if (!(await confirmDialog('Delete runsheet?', html`<p>This removes ${r.driver_name}'s runsheet for ${nice(r.work_date)} permanently.</p>`, 'Delete', true))) return;
-            try { await api('/api/runsheets/' + r.id, { method: 'DELETE' }); toast('Deleted'); location.hash = '#/runsheets'; } catch (err) { fail(err); }
-          };
+          $('#del', v).onclick = () => deleteRunsheet(r, () => { location.hash = '#/runsheets'; });
         },
       };
     },
@@ -754,6 +752,12 @@
         <tbody>${rows.length ? rows.map((r) => html`<tr><td class="nowrap small">${stamp(r.created_at)}</td><td>${r.to_addr}</td><td>${r.subject}</td><td>${r.mode === 'smtp' ? 'Sent' : 'Outbox'}</td><td>${r.status === 'sent' ? html`<span class="pill paid">${r.mode === 'smtp' ? 'Sent' : 'Saved'}</span>` : html`<span class="pill rejected">${r.status}</span>`} <span class="small muted">${r.status !== 'sent' ? r.detail : ''}</span></td></tr>`) : html`<tr><td colspan="5" class="empty">Nothing yet.</td></tr>`}</tbody></table></div></div>`;
     },
   };
+
+  async function deleteRunsheet(r, after) {
+    const onRcti = r.rcti_id ? html`<p>It's on ${r.rcti_number || 'an RCTI'}${r.rcti_paid_at ? ', which is already marked paid' : ''}. That RCTI will be re-totalled.</p>` : '';
+    if (!(await confirmDialog('Delete runsheet?', html`<p>This removes ${r.driver_name}'s runsheet for ${nice(r.work_date)} permanently.</p>${onRcti}`, 'Delete', true))) return;
+    try { await api('/api/runsheets/' + r.id, { method: 'DELETE' }); toast('Runsheet deleted'); after(); } catch (err) { fail(err); }
+  }
 
   function bindRows(v) { $$('tr[data-go]', v).forEach((tr) => tr.addEventListener('click', (e) => { if (!e.target.closest('a,button')) location.hash = tr.dataset.go; })); }
 
