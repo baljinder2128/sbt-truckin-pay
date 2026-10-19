@@ -9,7 +9,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cron = require('node-cron');
 
-const { db, DATA_DIR, getSettings, setSetting } = require('./db');
+const { db, DATA_DIR, STORAGE_SAFE, getSettings, setSetting } = require('./db');
 const { calcShift, round2, weekRange, addDays, todayLocal } = require('./pay');
 const rcti = require('./rcti');
 const { sendMail, smtpConfigured } = require('./mail');
@@ -153,7 +153,7 @@ app.post('/api/me/password', auth(), (req, res) => {
 });
 app.get('/api/config', (req, res) => {
   const s = getSettings();
-  res.json({ company_name: s.company_name, has_logo: !!s.logo_path, extraction: extractionEnabled, smtp: smtpConfigured(), today: todayLocal() });
+  res.json({ company_name: s.company_name, has_logo: !!s.logo_path, extraction: extractionEnabled, smtp: smtpConfigured(), today: todayLocal(), storage_safe: STORAGE_SAFE });
 });
 app.get('/api/logo', (req, res) => {
   const s = getSettings();
@@ -408,7 +408,7 @@ app.put('/api/staff/:id', auth('office'), (req, res) => {
 const SETTING_KEYS = ['company_name', 'company_abn', 'company_address', 'company_phone', 'company_email', 'office_email', 'rcti_prefix', 'rcti_next_number', 'payment_terms', 'rcti_agreement', 'auto_weekly_rcti', 'auto_email_runsheets'];
 app.get('/api/settings', auth('office'), (req, res) => {
   const s = getSettings();
-  res.json({ ...Object.fromEntries(SETTING_KEYS.map((k) => [k, s[k]])), has_logo: !!s.logo_path, smtp: smtpConfigured(), smtp_from_env: !!process.env.SMTP_HOST, smtp_host: s.smtp_host, smtp_user: s.smtp_user, smtp_pass_set: !!s.smtp_pass, brevo_key_set: !!s.brevo_api_key, brevo_from_env: !!process.env.BREVO_API_KEY, extraction: extractionEnabled, timezone: TZ });
+  res.json({ ...Object.fromEntries(SETTING_KEYS.map((k) => [k, s[k]])), has_logo: !!s.logo_path, smtp: smtpConfigured(), smtp_from_env: !!process.env.SMTP_HOST, smtp_host: s.smtp_host, smtp_user: s.smtp_user, smtp_pass_set: !!s.smtp_pass, brevo_key_set: !!s.brevo_api_key, brevo_from_env: !!process.env.BREVO_API_KEY, extraction: extractionEnabled, timezone: TZ, storage_safe: STORAGE_SAFE });
 });
 app.put('/api/settings', auth('office'), (req, res) => {
   for (const k of SETTING_KEYS) if (req.body[k] !== undefined) setSetting(k, req.body[k]);
@@ -541,6 +541,7 @@ if (require.main === module) {
   for (const port of new Set([PORT, 3000, 8080])) {
     app.listen(port, '0.0.0.0', () => console.log(`SB Truckin pay app listening on port ${port}`)).on('error', (e) => console.error(`port ${port}: ${e.message}`));
   }
+  if (!STORAGE_SAFE) console.warn('WARNING: no Railway volume attached. Runsheets, drivers and RCTIs will be wiped on the next deploy.');
   console.log(`TZ ${TZ}, email ${smtpConfigured() ? 'SMTP' : 'outbox only'}, photo reading ${extractionEnabled ? 'on' : 'off'}, data in ${DATA_DIR}`);
 }
 module.exports = { app, weeklyRun };

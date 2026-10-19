@@ -3,7 +3,11 @@ const path = require('path');
 const fs = require('fs');
 const { DatabaseSync } = require('node:sqlite');
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+// On Railway, always keep data on the attached volume so a new deploy can't wipe it.
+const VOLUME_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH || '';
+const DATA_DIR = VOLUME_DIR || process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+const ON_RAILWAY = !!(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+const STORAGE_SAFE = !ON_RAILWAY || !!VOLUME_DIR;
 for (const d of ['', 'uploads', 'rcti', 'outbox', 'branding']) fs.mkdirSync(path.join(DATA_DIR, d), { recursive: true });
 
 const db = new DatabaseSync(path.join(DATA_DIR, 'sbt-pay.db'));
@@ -142,4 +146,4 @@ function tx(fn) {
   try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
 
-module.exports = { db, DATA_DIR, getSettings, setSetting, tx };
+module.exports = { db, DATA_DIR, STORAGE_SAFE, getSettings, setSetting, tx };

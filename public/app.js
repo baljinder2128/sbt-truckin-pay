@@ -416,6 +416,7 @@
       const d = await api('/api/office/dashboard');
       state.cache.toReview = d.to_review;
       return html`<h1>Dashboard</h1>
+        ${state.config.storage_safe === false ? html`<div class="notice err"><b>Data is not being kept.</b> No storage volume is attached in Railway, so drivers, runsheets and RCTIs are wiped every time a new version goes live.</div>` : ''}
         ${d.missing_details.length ? html`<div class="notice warn"><b>Missing RCTI details:</b> ${d.missing_details.map((x, i) => html`${i ? ', ' : ''}<a href="#/driver/${x.id}">${x.name}</a>`)} need a rate, ABN or bank details before their RCTIs are complete.</div>` : ''}
         <div class="grid g4" style="margin-bottom:16px">
           <div class="stat dark"><div class="k">This week</div><div class="v">${hrs(d.this_week.hours)}<span style="font-size:16px"> hrs</span></div><div class="s">${d.this_week.n} runsheets · ${money(d.this_week.amount)}</div></div>
@@ -681,6 +682,7 @@
         html: html`<h1>Settings</h1>
           <div class="grid g2 stack" style="margin-bottom:16px">
             <div class="notice ${s.smtp ? 'ok' : 'warn'}" style="margin:0"><b>Email:</b> ${s.smtp ? 'sending from your email account.' : 'not connected yet. Add a Brevo API key below. Until then emails are only saved in the Email log.'}</div>
+            ${s.storage_safe ? '' : html`<div class="notice err" style="margin:0;grid-column:1/-1"><b>Data is not being kept.</b> No storage volume is attached in Railway, so drivers, runsheets and RCTIs are wiped every time a new version goes live.</div>`}
             <div class="notice ${s.extraction ? 'ok' : 'warn'}" style="margin:0"><b>Photo reading:</b> ${s.extraction ? 'on. Times are read off runsheet photos for drivers to check.' : 'off. Drivers type times in from the photo.'}</div>
           </div>
           ${s.smtp_from_env || s.brevo_from_env ? '' : html`<form class="card" id="mailForm"><h2>Email account (sends runsheets and RCTIs)</h2>
