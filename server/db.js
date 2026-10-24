@@ -91,6 +91,13 @@ CREATE TABLE IF NOT EXISTS runsheets (
 );
 CREATE INDEX IF NOT EXISTS idx_runsheets_driver_date ON runsheets(driver_id, work_date);
 
+-- Days the office marked as a day off, so the week and the RCTI show them.
+CREATE TABLE IF NOT EXISTS days_off (
+  driver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  work_date TEXT NOT NULL,
+  PRIMARY KEY (driver_id, work_date)
+);
+
 CREATE TABLE IF NOT EXISTS email_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   to_addr TEXT NOT NULL,

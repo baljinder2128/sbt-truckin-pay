@@ -149,8 +149,11 @@ function renderPdf(rctiId) {
     y += 18;
   };
   row(Object.fromEntries(cols.map((c) => [c.k, c.t.toUpperCase()])), { fill: INK, color: '#FFFFFF', bold: true, size: 8 });
-  sheets.forEach((sh, i) => {
+  const offs = db.prepare('SELECT work_date FROM days_off WHERE driver_id = ? AND work_date BETWEEN ? AND ?').all(r.driver_id, r.period_start, r.period_end);
+  const lines = [...sheets, ...offs.map((o) => ({ work_date: o.work_date, off: true }))].sort((a, b) => a.work_date.localeCompare(b.work_date) || String(a.start_time).localeCompare(String(b.start_time)));
+  lines.forEach((sh, i) => {
     if (y > 700) { doc.addPage(); y = 50; }
+    if (sh.off) return row({ date: auDate(sh.work_date), day: dayName(sh.work_date), start: 'Day off', finish: '', breaks: '', hours: '', rate: '', amount: '' }, { fill: i % 2 ? '#F4F5F7' : null, color: '#6B7480' });
     const br = JSON.parse(sh.breaks_json || '[]');
     row({
       date: auDate(sh.work_date), day: dayName(sh.work_date), start: sh.start_time, finish: sh.finish_time,
@@ -215,7 +218,7 @@ function pdfReady(rctiId, timeoutMs = 5000) {
 }
 
 // Bump when the PDF design changes so RCTIs already made are redrawn once, keeping their numbers and amounts.
-const PDF_LAYOUT = '2';
+const PDF_LAYOUT = '3';
 function refreshLayout() {
   if (getSettings().pdf_layout === PDF_LAYOUT) return;
   for (const { id } of db.prepare('SELECT id FROM rctis').all()) { try { renderPdf(id); } catch (e) { console.error('redraw RCTI', id, e.message); } }

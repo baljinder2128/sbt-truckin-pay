@@ -170,6 +170,8 @@ textarea { min-height: 80px; resize: vertical; }
 .btn.danger { background: transparent; color: var(--red); border: 1.5px solid #f0b5b8; }
 .btn.green { background: var(--green); color: #fff; }
 .btn.wa { background: #25D366; color: #fff; }
+tr.is-off td { color: var(--muted); background: #f6f7f8; }
+label.dayoff { margin: 0; white-space: nowrap; font-weight: 600; }
 .brkpair { display: flex; align-items: center; gap: 6px; }
 .brkpair span { color: var(--muted, #6b7280); font-size: 13px; }
 table.entry input[type=time] { min-width: 108px; padding: 8px; }

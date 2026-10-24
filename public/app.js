@@ -204,7 +204,7 @@
             <dt>Ex GST</dt><dd>${money(r.subtotal)}</dd><dt>GST</dt><dd>${money(r.gst)}</dd><dt>Total</dt><dd><b>${money(r.total)}</b></dd></dl>
           <a class="btn dark block" href="/api/rctis/${r.id}/pdf" target="_blank" style="margin-top:14px">View PDF</a></div>
         <div class="card flush"><div class="tablewrap"><table><thead><tr><th>Date</th><th>Start</th><th>Finish</th><th>Breaks (not deducted)</th><th class="num">Hours</th><th class="num">Amount</th></tr></thead>
-          <tbody>${r.runsheets.map((s) => html`<tr><td>${nice(s.work_date)}</td><td>${s.start_time}</td><td>${s.finish_time}</td><td class="muted">${s.breaks.map((b) => `${b.start}–${b.end}`).join(', ') || '—'}</td><td class="num">${hrs(s.hours)}</td><td class="num">${money(s.amount)}</td></tr>`)}</tbody></table></div></div>
+          <tbody>${withOffs(r).map((s) => s.off ? html`<tr class="is-off"><td>${nice(s.work_date)}</td><td>Day off</td><td></td><td></td><td class="num"></td><td class="num"></td></tr>` : html`<tr><td>${nice(s.work_date)}</td><td>${s.start_time}</td><td>${s.finish_time}</td><td class="muted">${s.breaks.map((b) => `${b.start}–${b.end}`).join(', ') || '—'}</td><td class="num">${hrs(s.hours)}</td><td class="num">${money(s.amount)}</td></tr>`)}</tbody></table></div></div>
         <p class="small muted">Only the office can change an RCTI. Call them if something is wrong.</p>`;
     },
 
@@ -230,6 +230,10 @@
     return html`<ul class="list">${rctis.map((r) => html`<li><a class="row" href="#/rcti/${r.id}"><div class="grow"><b>${short(r.period_start)} – ${short(r.period_end)}</b><div class="small muted">${r.number} · ${hrs(r.total_hours)} hrs</div>
       <div style="margin-top:4px">${r.paid_at ? html`<span class="pill paid">Paid ${auDate(r.paid_at)}</span>` : html`<span class="pill rcti_issued">Unpaid</span>`}</div></div><div class="amount">${money(r.total)}</div></a></li>`)}</ul>`;
   }
+
+  // RCTI lines with the days marked off slotted in by date.
+  const withOffs = (r) => [...r.runsheets, ...(r.days_off || []).map((d) => ({ work_date: d, off: true }))]
+    .sort((a, b) => a.work_date.localeCompare(b.work_date) || String(a.start_time).localeCompare(String(b.start_time)));
 
   function passwordCard() {
     return html`<form class="card" id="pwForm"><h2>Change password</h2>
@@ -448,7 +452,7 @@
             ${!r.paid_at ? html`<button class="btn ghost" id="rebuild" title="Re-total after edits and pick up late runsheets">Re-total</button><button class="btn danger" id="void">Void RCTI</button>` : ''}
           </div>
           <div class="card flush"><div class="tablewrap"><table><thead><tr><th>Date</th><th>Start</th><th>Finish</th><th>Breaks (not deducted)</th><th class="num">Hours</th><th class="num">Rate</th><th class="num">Amount</th><th></th></tr></thead>
-            <tbody>${r.runsheets.map((s) => html`<tr class="click" data-go="#/runsheet/${s.id}"><td>${nice(s.work_date)}</td><td>${s.start_time}</td><td>${s.finish_time}</td><td class="muted">${s.breaks.map((b) => `${b.start}–${b.end}`).join(', ') || '—'}</td><td class="num">${hrs(s.hours)}</td><td class="num">${money(s.rate)}</td><td class="num">${money(s.amount)}</td><td>${pill(s.status)}</td></tr>`)}</tbody>
+            <tbody>${withOffs(r).map((s) => s.off ? html`<tr class="is-off"><td>${nice(s.work_date)}</td><td>Day off</td><td></td><td></td><td class="num"></td><td class="num"></td><td class="num"></td><td></td></tr>` : html`<tr class="click" data-go="#/runsheet/${s.id}"><td>${nice(s.work_date)}</td><td>${s.start_time}</td><td>${s.finish_time}</td><td class="muted">${s.breaks.map((b) => `${b.start}–${b.end}`).join(', ') || '—'}</td><td class="num">${hrs(s.hours)}</td><td class="num">${money(s.rate)}</td><td class="num">${money(s.amount)}</td><td>${pill(s.status)}</td></tr>`)}</tbody>
             <tfoot><tr><td colspan="4">Subtotal ${money(r.subtotal)} + GST ${money(r.gst)}</td><td class="num">${hrs(r.total_hours)}</td><td></td><td class="num">${money(r.total)}</td><td></td></tr></tfoot></table></div></div>`,
         bind(v) {
           bindRows(v);
@@ -474,7 +478,7 @@
       const ds = (await drivers()).filter((x) => x.active);
       const wk = weekStart(q.get('week') || today());
       const d = ds.find((x) => String(x.id) === q.get('driver_id'));
-      const [sheets, rctis] = d ? await Promise.all([api(`/api/runsheets?driver_id=${d.id}&from=${wk}&to=${addDays(wk, 5)}&limit=100`), api(`/api/rctis?driver_id=${d.id}&week=${wk}`)]) : [[], []];
+      const [sheets, rctis, offs] = d ? await Promise.all([api(`/api/runsheets?driver_id=${d.id}&from=${wk}&to=${addDays(wk, 5)}&limit=100`), api(`/api/rctis?driver_id=${d.id}&week=${wk}`), api(`/api/days-off?driver_id=${d.id}&from=${wk}&to=${addDays(wk, 5)}`)]) : [[], [], []];
       const rows = [];
       for (let i = 0; i < 6; i++) {
         const day = addDays(wk, i);
@@ -487,6 +491,7 @@
         const b = (s.breaks && s.breaks[0]) || {};
         return html`<tr data-date="${s.work_date}" data-id="${s.id || ''}" data-rate="${s.id ? s.rate : d.hourly_rate}" ${lock ? 'data-lock="1"' : ''}>
           <td class="nowrap"><b>${nice(s.work_date)}</b></td>
+          <td>${s.id ? html`<span class="small muted">Worked</span>` : html`<label class="check dayoff"><input type="checkbox" class="off" ${offs.includes(s.work_date) ? 'checked' : ''}> Day off</label>`}</td>
           <td><input type="time" class="st" value="${s.start_time || ''}"></td><td><input type="time" class="fi" value="${s.finish_time || ''}"></td>
           <td>${lock ? html`<span class="small muted">${s.breaks.map((x) => `${x.start}–${x.end}`).join(', ')}</span>` : html`<div class="brkpair"><input type="time" class="bs" value="${b.start || ''}"><span>to</span><input type="time" class="be" value="${b.end || ''}"></div>`}</td>
           <td class="num hh">—</td><td class="num am">—</td>
@@ -500,11 +505,11 @@
           ${d ? html`
             ${rctis.length ? html`<div class="notice info">This week already has ${rctis.map((r, i) => html`${i ? ', ' : ''}<a href="#/rcti/${r.id}">${r.number}</a>${r.paid_at ? ' (paid)' : ''}`)}. Saving changes re-totals it.</div>` : ''}
             <div class="card flush"><div class="tablewrap"><table class="entry">
-              <thead><tr><th>Day</th><th>Start</th><th>Finish</th><th>Break</th><th class="num">Hours</th><th class="num">Amount</th><th></th></tr></thead>
+              <thead><tr><th>Day</th><th>Day off</th><th>Start</th><th>Finish</th><th>Break</th><th class="num">Hours</th><th class="num">Amount</th><th></th></tr></thead>
               <tbody>${rows.map(row)}</tbody>
-              <tfoot><tr><td colspan="4">Week total at ${money(d.hourly_rate)}/hr incl. GST</td><td class="num" id="tH">0.00</td><td class="num" id="tA">$0.00</td><td></td></tr></tfoot>
+              <tfoot><tr><td colspan="5">Week total at ${money(d.hourly_rate)}/hr incl. GST</td><td class="num" id="tH">0.00</td><td class="num" id="tA">$0.00</td><td></td></tr></tfoot>
             </table></div></div>
-            <p class="small muted">Leave a day blank if they didn't work. Paid hours run start to finish; the break is recorded only.</p>
+            <p class="small muted">Tick Day off for days they didn't work, and it shows on their RCTI. Paid hours run start to finish; the break is recorded only.</p>
             <div class="actions"><button class="btn ghost xl" id="save">Save week</button><button class="btn xl" id="finish">Finish week &amp; make RCTI</button></div>` : html`<div class="empty card">Pick a driver to enter their week.</div>`}`,
         bind(v) {
           $('#drv', v).onchange = (e) => { location.hash = '#/entry?' + new URLSearchParams({ ...(e.target.value ? { driver_id: e.target.value } : {}), week: wk }); };
@@ -513,22 +518,27 @@
           const calc = () => {
             let th = 0; let ta = 0;
             for (const tr of trs) {
+              const off = $('.off', tr)?.checked;
+              tr.classList.toggle('is-off', !!off);
+              $$('input[type=time]', tr).forEach((i) => { i.disabled = !!off; if (off) i.value = ''; });
               const m = span($('.st', tr).value, $('.fi', tr).value);
               const h = m ? Math.round(m / 60 * 100) / 100 : 0;
               const a = Math.round(h * Number(tr.dataset.rate || 0) * 100) / 100;
-              $('.hh', tr).textContent = h ? hrs(h) : '—';
+              $('.hh', tr).textContent = off ? 'Day off' : h ? hrs(h) : '—';
               $('.am', tr).textContent = h ? money(a) : '—';
               th += h; ta += a;
             }
             $('#tH', v).textContent = hrs(th);
             $('#tA', v).textContent = money(ta);
           };
-          $$('input', v).forEach((i) => i.addEventListener('input', calc));
+          $$('input', v).forEach((i) => i.addEventListener(i.type === 'checkbox' ? 'change' : 'input', calc));
           calc();
           $$('[data-del]', v).forEach((b) => (b.onclick = () => deleteRunsheet(sheets.find((x) => String(x.id) === b.dataset.del), render)));
           const save = async () => {
             const days = [];
+            const daysOff = trs.filter((tr) => $('.off', tr)?.checked).map((tr) => tr.dataset.date);
             for (const tr of trs) {
+              if ($('.off', tr)?.checked) continue;
               const st = $('.st', tr).value; const fi = $('.fi', tr).value;
               if (!st && !fi) continue;
               if (!st || !fi) throw new Error(`${nice(tr.dataset.date)}: enter both start and finish`);
@@ -537,8 +547,8 @@
               if (!tr.dataset.lock) { const bs = $('.bs', tr).value; const be = $('.be', tr).value; x.breaks = bs && be ? [{ start: bs, end: be }] : []; }
               days.push(x);
             }
-            if (!days.length) throw new Error('Enter at least one day');
-            return api('/api/runsheets/week', { method: 'POST', body: { driver_id: d.id, week: wk, days } });
+            if (!days.length && !daysOff.length && !offs.length) throw new Error('Enter at least one day');
+            return api('/api/runsheets/week', { method: 'POST', body: { driver_id: d.id, week: wk, days, days_off: daysOff } });
           };
           const busy = (on) => { $('#save', v).disabled = on; $('#finish', v).disabled = on; };
           $('#save', v).onclick = async () => { busy(true); try { const o = await save(); toast(`Saved: ${o.added} added, ${o.changed} changed`); render(); } catch (err) { busy(false); fail(err); } };

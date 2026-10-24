@@ -197,6 +197,10 @@ function officeDriver(id) {
   return d;
 }
 
+app.get('/api/days-off', auth('office'), (req, res) => {
+  res.json(db.prepare('SELECT work_date FROM days_off WHERE driver_id = ? AND work_date BETWEEN ? AND ? ORDER BY work_date').all(Number(req.query.driver_id), String(req.query.from), String(req.query.to)).map((r) => r.work_date));
+});
+
 app.post('/api/runsheets', auth('office'), (req, res) => {
   const b = req.body || {};
   const driver = officeDriver(b.driver_id);
@@ -216,6 +220,11 @@ app.post('/api/runsheets/week', auth('office'), (req, res) => {
   const driver = officeDriver(b.driver_id);
   const wk = weekRange(b.week || todayLocal());
   const days = (Array.isArray(b.days) ? b.days : []).filter((x) => x && x.start_time && x.finish_time);
+  const offs = Array.isArray(b.days_off) ? [...new Set(b.days_off.map(String))] : null;
+  for (const o of offs || []) {
+    if (o < wk.start || o > wk.end) throw bad('Every day must be inside the week');
+    if (days.some((x) => x.work_date === o)) throw bad(`${rcti.auDate(o)} has times and is marked as a day off. Pick one.`);
+  }
   for (const x of days) {
     if (x.work_date < wk.start || x.work_date > wk.end) throw bad('Every day must be inside the week');
     calcShift({ start_time: x.start_time, finish_time: x.finish_time, breaks: x.breaks, rate: 0 }); // checks times before anything is saved
@@ -238,8 +247,12 @@ app.post('/api/runsheets/week', auth('office'), (req, res) => {
       added++;
     }
   }
+  if (offs) {
+    db.prepare('DELETE FROM days_off WHERE driver_id = ? AND work_date BETWEEN ? AND ?').run(driver.id, wk.start, wk.end);
+    for (const o of offs) db.prepare('INSERT INTO days_off (driver_id, work_date) VALUES (?, ?)').run(driver.id, o);
+  }
   const existing = db.prepare('SELECT id FROM rctis WHERE driver_id = ? AND period_start BETWEEN ? AND ? ORDER BY id DESC LIMIT 1').get(driver.id, addDays(wk.start, -1), wk.start);
-  if (existing && added) touched.add(existing.id);
+  if (existing && (added || offs)) touched.add(existing.id);
   for (const id of touched) refreshRctiFor(id);
   res.json({ ok: true, added, changed, rcti_id: existing ? existing.id : null });
 });
@@ -516,7 +529,8 @@ function loadRcti(req) {
 }
 app.get('/api/rctis/:id', auth(), (req, res) => {
   const r = loadRcti(req);
-  res.json({ ...r, runsheets: db.prepare('SELECT * FROM runsheets WHERE rcti_id = ? ORDER BY work_date').all(r.id).map(rowRunsheet) });
+  res.json({ ...r, runsheets: db.prepare('SELECT * FROM runsheets WHERE rcti_id = ? ORDER BY work_date').all(r.id).map(rowRunsheet),
+    days_off: db.prepare('SELECT work_date FROM days_off WHERE driver_id = ? AND work_date BETWEEN ? AND ? ORDER BY work_date').all(r.driver_id, r.period_start, r.period_end).map((x) => x.work_date) });
 });
 app.get('/api/rctis/:id/pdf', auth(), wrap(async (req, res) => {
   const r = loadRcti(req);

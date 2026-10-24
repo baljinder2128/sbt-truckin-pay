@@ -248,3 +248,18 @@ test('a driver who left is kept with their RCTIs; only drivers with no RCTIs can
   assert.ok(!db.prepare('SELECT 1 FROM users WHERE id = ?').get(oops.id));
   assert.equal(db.prepare('SELECT COUNT(*) n FROM runsheets WHERE driver_id = ?').get(oops.id).n, 0);
 });
+
+test('days off are saved for the week and listed on the RCTI', async () => {
+  const office = client();
+  await office('POST', '/api/login', { email: 'boss@test.local', password: 'OfficePass1' });
+  const d = (await office('POST', '/api/drivers', { name: 'Off Driver', email: 'off@test.local', password: 'Password1', hourly_rate: 40 })).body;
+  const clash = await office('POST', '/api/runsheets/week', { driver_id: d.id, week: '2026-07-06', days: [{ work_date: '2026-07-06', start_time: '06:00', finish_time: '14:00' }], days_off: ['2026-07-06'] });
+  assert.equal(clash.status, 400);
+  await office('POST', '/api/runsheets/week', { driver_id: d.id, week: '2026-07-06', days: [{ work_date: '2026-07-06', start_time: '06:00', finish_time: '14:00' }], days_off: ['2026-07-07', '2026-07-08'] });
+  assert.deepEqual((await office('GET', `/api/days-off?driver_id=${d.id}&from=2026-07-06&to=2026-07-11`)).body, ['2026-07-07', '2026-07-08']);
+  const fin = (await office('POST', '/api/rctis/finish-week', { driver_id: d.id, week: '2026-07-06' })).body;
+  assert.deepEqual((await office('GET', `/api/rctis/${fin.id}`)).body.days_off, ['2026-07-07', '2026-07-08']);
+  await office('POST', '/api/runsheets/week', { driver_id: d.id, week: '2026-07-06', days: [], days_off: ['2026-07-08'] });
+  assert.deepEqual((await office('GET', `/api/rctis/${fin.id}`)).body.days_off, ['2026-07-08'], 'unticking removes it');
+  assert.equal((await office('GET', `/api/rctis/${fin.id}`)).body.total, 320, 'days off add nothing to pay');
+});
