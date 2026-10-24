@@ -1,4 +1,4 @@
-// End-to-end API flow: office sets up a driver, driver submits a runsheet with a photo, office edits, RCTI is generated, pushed and paid.
+// End-to-end API flow: office sets up a driver, enters their week, RCTI is generated, sent and paid. Drivers only ever read.
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -51,29 +51,41 @@ test('full pay flow', async () => {
   assert.equal((await driver('POST', '/api/login', { email: 'd@test.local', password: 'Password1' })).status, 200);
   assert.equal((await driver('GET', '/api/drivers')).status, 403, 'drivers cannot see the driver list');
 
-  // Photo upload then submit
+  // Drivers can't enter or change anything
+  assert.equal((await driver('POST', '/api/runsheets', { work_date: '2026-10-06', start_time: '05:00', finish_time: '15:30' })).status, 403);
+  assert.equal((await driver('POST', '/api/runsheets/week', { driver_id: d.body.id, days: [] })).status, 403);
   const fd = new FormData();
   fd.append('photo', new Blob([fs.readFileSync(path.join(__dirname, '..', 'public', 'icons', 'icon-192.png'))], { type: 'image/png' }), 'sheet.png');
-  const up = await driver('POST', '/api/uploads', fd, true);
-  assert.equal(up.status, 200, JSON.stringify(up.body));
-  assert.equal(up.body.extracted, null);
+  assert.equal((await driver('POST', '/api/uploads', fd, true)).status, 403);
 
-  const rs = await driver('POST', '/api/runsheets', { upload_id: up.body.id, work_date: '2026-10-06', start_time: '05:00', finish_time: '15:30', breaks: [{ start: '09:00', end: '09:30' }] });
-  assert.equal(rs.status, 200, JSON.stringify(rs.body));
+  // Office enters the week from the runsheets
+  const bad2 = await office('POST', '/api/runsheets/week', { driver_id: d.body.id, week: '2026-10-06', days: [{ work_date: '2026-10-20', start_time: '05:00', finish_time: '15:30' }] });
+  assert.equal(bad2.status, 400, 'day outside the week');
+  const wkSave = await office('POST', '/api/runsheets/week', { driver_id: d.body.id, week: '2026-10-06', days: [
+    { work_date: '2026-10-06', start_time: '05:00', finish_time: '15:30', breaks: [{ start: '09:00', end: '09:30' }] },
+    { work_date: '2026-10-07', start_time: '06:00', finish_time: '14:00', breaks: [] },
+    { work_date: '2026-10-08', start_time: '', finish_time: '' },
+  ] });
+  assert.equal(wkSave.status, 200, JSON.stringify(wkSave.body));
+  assert.equal(wkSave.body.added, 2);
+  const sheets = (await office('GET', `/api/runsheets?driver_id=${d.body.id}`)).body.sort((x, y) => x.work_date.localeCompare(y.work_date));
+  const rs = { body: sheets[0] };
   assert.equal(rs.body.hours, 10.5);
   assert.equal(rs.body.amount, 420);
   assert.equal(rs.body.break_minutes, 30);
-  assert.ok(rs.body.emailed.ok, 'office copy saved');
-  await driver('POST', '/api/runsheets', { upload_id: up.body.id, work_date: '2026-10-07', start_time: '06:00', finish_time: '14:00', breaks: [] });
+  assert.equal(rs.body.status, 'approved');
 
-  // Office edits finish time
-  const ed = await office('PUT', `/api/runsheets/${rs.body.id}`, { finish_time: '16:00', status: 'approved' });
-  assert.equal(ed.body.hours, 11);
+  // Saving the same week again with a changed finish updates that day rather than adding one
+  const again = await office('POST', '/api/runsheets/week', { driver_id: d.body.id, week: '2026-10-06', days: [{ id: rs.body.id, work_date: '2026-10-06', start_time: '05:00', finish_time: '16:00' }, { id: sheets[1].id, work_date: '2026-10-07', start_time: '06:00', finish_time: '14:00' }] });
+  assert.deepEqual([again.body.added, again.body.changed], [0, 1]);
+  assert.equal((await office('GET', `/api/runsheets/${rs.body.id}`)).body.hours, 11);
 
-  // Pending before RCTI: (440 + 320) * 1.1
+  // Nothing shows for the driver until an RCTI is sent to them
+  assert.equal((await driver('GET', '/api/runsheets')).body.length, 0);
+  assert.equal((await driver('GET', `/api/runsheets/${rs.body.id}`)).status, 404);
   let sum = (await driver('GET', '/api/pay/summary')).body;
-  assert.equal(sum.pending, 760);
-  assert.equal(sum.cleared, 0);
+  assert.equal(sum.pending, 0);
+  assert.equal((await office('GET', `/api/pay/summary?driver_id=${d.body.id}`)).body.pending, 760);
 
   const gen = await office('POST', '/api/rctis/generate', { week: '2026-10-08' });
   assert.equal(gen.body.created, 1);
@@ -90,6 +102,9 @@ test('full pay flow', async () => {
   assert.equal((await driver('GET', `/api/rctis/${rid}/pdf`)).status, 404);
   await office('POST', `/api/rctis/${rid}/push`, {});
   assert.equal((await driver('GET', '/api/rctis')).body.length, 1);
+  assert.equal((await driver('GET', '/api/runsheets')).body.length, 2, 'days on a sent RCTI are visible');
+  assert.equal((await driver('GET', '/api/pay/summary')).body.pending, 760);
+  assert.equal((await driver('PUT', `/api/runsheets/${rs.body.id}`, { finish_time: '18:00' })).status, 403);
   const pdf = await driver('GET', `/api/rctis/${rid}/pdf`);
   assert.equal(pdf.status, 200);
   assert.ok(Buffer.from(pdf.body).slice(0, 5).toString() === '%PDF-');
@@ -106,7 +121,7 @@ test('full pay flow', async () => {
 
   const log = (await office('GET', '/api/email-log')).body;
   assert.ok(log.some((l) => l.subject.startsWith('RCTI')), 'RCTI office copy logged');
-  assert.ok(fs.readdirSync(path.join(process.env.DATA_DIR, 'outbox')).length >= 3);
+  assert.ok(fs.readdirSync(path.join(process.env.DATA_DIR, 'outbox')).length >= 1);
 });
 
 test('weekly RCTI catches up once after the server slept through Sunday 1am', async () => {
@@ -177,4 +192,41 @@ test('office can still edit and delete a runsheet on a paid RCTI, and the RCTI r
   const del = await office('DELETE', `/api/runsheets/${sheets[0].id}`);
   assert.equal(del.status, 200);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM runsheets WHERE id = ?').get(sheets[0].id).n, 0);
+});
+
+test('finish week, WhatsApp link and payments by month', async () => {
+  const office = client();
+  await office('POST', '/api/login', { email: 'boss@test.local', password: 'OfficePass1' });
+  const d = (await office('POST', '/api/drivers', { name: 'Wa Driver', email: 'wa@test.local', password: 'Password1', hourly_rate: 55, phone: '0412 345 678', gst_registered: true })).body;
+  await office('POST', '/api/runsheets/week', { driver_id: d.id, week: '2026-09-13', days: [{ work_date: '2026-09-14', start_time: '06:00', finish_time: '16:00' }] });
+  const fin = await office('POST', '/api/rctis/finish-week', { driver_id: d.id, week: '2026-09-13' });
+  assert.equal(fin.status, 200, JSON.stringify(fin.body));
+  assert.equal(fin.body.created, 1);
+  // A late day added to that week goes onto the same RCTI
+  await office('POST', '/api/runsheets/week', { driver_id: d.id, week: '2026-09-13', days: [{ work_date: '2026-09-15', start_time: '06:00', finish_time: '10:00' }] });
+  const fin2 = await office('POST', '/api/rctis/finish-week', { driver_id: d.id, week: '2026-09-13' });
+  assert.equal(fin2.body.id, fin.body.id);
+  assert.equal((await office('GET', `/api/rctis/${fin.body.id}`)).body.total, 770);
+
+  const share = (await office('GET', `/api/rctis/${fin.body.id}/share`)).body;
+  assert.equal(share.phone, '61412345678');
+  const pathOnly = new URL(share.link).pathname;
+  const pdf = await fetch(base + pathOnly);
+  assert.equal(pdf.status, 200);
+  assert.equal(Buffer.from(await pdf.arrayBuffer()).slice(0, 5).toString(), '%PDF-');
+  assert.equal((await fetch(base + pathOnly.slice(0, -2) + 'xx')).status, 404, 'tampered link refused');
+
+  await office('POST', `/api/rctis/${fin.body.id}/paid`, { paid_on: '2026-10-02', payment_ref: 'EFT9' });
+  const p = (await office('GET', '/api/payments?fy=2027')).body;
+  const row = p.rows.find((r) => r.id === fin.body.id);
+  assert.equal(row.total, 770);
+  assert.equal(row.gst, 70);
+  const csv = await office('GET', '/api/payments.csv?fy=2027');
+  assert.ok(Buffer.from(csv.body).toString().includes('"EFT9"'));
+  const driver = client();
+  await driver('POST', '/api/login', { email: 'wa@test.local', password: 'Password1' });
+  assert.equal((await driver('GET', '/api/payments')).status, 403);
+
+  await office('POST', `/api/rctis/${fin.body.id}/paid`, { paid: false });
+  assert.ok(!(await office('GET', '/api/payments?fy=2027')).body.rows.some((r) => r.id === fin.body.id), 'unpaid comes off the payments list');
 });

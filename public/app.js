@@ -69,7 +69,8 @@
   // ---------- icons & brand ----------
   const I = {
     home: '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
-    camera: '<path d="M4 7h3l2-3h6l2 3h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="4"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
+    bank: '<path d="M3 10h18L12 4zM5 10v8M9 10v8M15 10v8M19 10v8M3 21h18"/>',
     list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
     pay: '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20M6 15h4"/>',
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
@@ -89,8 +90,8 @@
   const query = () => new URLSearchParams(location.hash.split('?')[1] || '');
   window.addEventListener('hashchange', render);
 
-  const DRIVER_TABS = [['/', 'Home', 'home'], ['/runsheets', 'Runsheets', 'list'], ['/submit', 'Submit', 'camera', 'cta'], ['/pay', 'My Pay', 'pay'], ['/profile', 'Profile', 'user']];
-  const OFFICE_TABS = [['/', 'Dashboard', 'dash'], ['/runsheets', 'Runsheets', 'list'], ['/rctis', 'Pay & RCTIs', 'doc'], ['/drivers', 'Drivers', 'truck'], ['/settings', 'Settings', 'cog'], ['/emails', 'Email log', 'mail']];
+  const DRIVER_TABS = [['/', 'Home', 'home'], ['/pay', 'My RCTIs', 'doc'], ['/profile', 'Profile', 'user']];
+  const OFFICE_TABS = [['/', 'Dashboard', 'dash'], ['/entry', 'Enter times', 'clock'], ['/runsheets', 'Runsheets', 'list'], ['/rctis', 'Pay & RCTIs', 'doc'], ['/payments', 'Payments', 'bank'], ['/drivers', 'Drivers', 'truck'], ['/settings', 'Settings', 'cog'], ['/emails', 'Email log', 'mail']];
 
   function frame(content) {
     const r = '/' + (route().split('/')[1] || '');
@@ -98,9 +99,9 @@
     const top = html`<header class="topbar">${brand()}<div class="spacer"></div><div class="who"><b>${me.name}</b>${me.role === 'office' ? 'Office' : 'Driver'}</div><button class="iconbtn" data-act="logout">Log out</button></header>`;
     if (me.role === 'driver') {
       return html`${top}<div class="driver"><main id="view">${content}</main></div>
-        <nav class="tabbar">${DRIVER_TABS.map(([p, t, i, cls]) => html`<a href="#${p}" class="${r === p ? 'on' : ''} ${cls || ''}">${cls ? html`<span class="fab">${icon(i)}</span>` : icon(i)}${t}</a>`)}</nav>`;
+        <nav class="tabbar">${DRIVER_TABS.map(([p, t, i, cls]) => html`<a href="#${p}" class="${r === p || (p === '/pay' && r === '/rcti') ? 'on' : ''} ${cls || ''}">${cls ? html`<span class="fab">${icon(i)}</span>` : icon(i)}${t}</a>`)}</nav>`;
     }
-    return html`${top}<div class="shell"><nav class="side">${OFFICE_TABS.map(([p, t, i]) => html`<a href="#${p}" class="${r === p || (p === '/rctis' && r === '/rcti') || (p === '/drivers' && r === '/driver') || (p === '/runsheets' && r === '/runsheet') ? 'on' : ''}">${icon(i)}<span>${t}</span>${p === '/runsheets' && state.cache.toReview ? html`<span class="badge">${state.cache.toReview}</span>` : ''}</a>`)}</nav><main id="view">${content}</main></div>`;
+    return html`${top}<div class="shell"><nav class="side">${OFFICE_TABS.map(([p, t, i]) => html`<a href="#${p}" class="${r === p || (p === '/rctis' && r === '/rcti') || (p === '/drivers' && r === '/driver') || (p === '/runsheets' && r === '/runsheet') ? 'on' : ''}">${icon(i)}<span>${t}</span></a>`)}</nav><main id="view">${content}</main></div>`;
   }
 
   // Copy each column heading onto its cells so phones can show tables as labelled cards (see styles.css).
@@ -174,167 +175,37 @@
   // =====================================================================
   const DRIVER = {
     async ''() {
-      const [sum, sheets] = await Promise.all([api('/api/pay/summary'), api('/api/runsheets?limit=5')]);
-      const tw = sum.this_week;
-      const submittedToday = sheets.some((s) => s.work_date === today());
+      const rctis = await api('/api/rctis');
+      const owed = rctis.filter((r) => !r.paid_at).reduce((a, r) => a + r.total, 0);
+      const paid = rctis.filter((r) => r.paid_at).reduce((a, r) => a + r.total, 0);
       return html`
         <h1 style="margin-top:4px">G'day, ${state.me.name.split(' ')[0]}</h1>
         <div class="paycards">
-          <div class="stat amber"><div class="k">Pending pay</div><div class="v">${money(sum.pending)}</div><div class="s">Not paid yet</div></div>
-          <div class="stat dark"><div class="k">Cleared</div><div class="v">${money(sum.cleared)}</div><div class="s">Paid to your account</div></div>
+          <div class="stat amber"><div class="k">Unpaid</div><div class="v">${money(owed)}</div><div class="s">On RCTIs not paid yet</div></div>
+          <div class="stat dark"><div class="k">Paid</div><div class="v">${money(paid)}</div><div class="s">Paid to your account</div></div>
         </div>
-        <div class="card">
-          <h2>This week <span class="muted small" style="text-transform:none;font-family:var(--body);margin-left:auto">${short(tw.start)} – ${short(tw.end)}</span></h2>
-          <div class="grid g3">
-            <div><div class="muted small">Days</div><div class="amount">${tw.days}</div></div>
-            <div><div class="muted small">Hours</div><div class="amount">${hrs(tw.hours)}</div></div>
-            <div><div class="muted small">Earned</div><div class="amount">${money(tw.subtotal)}</div></div>
-          </div>
-        </div>
-        ${submittedToday ? html`<div class="notice ok">Today's runsheet is in. Nice work.</div>` : html`<a href="#/submit" class="btn block xl" style="margin-bottom:16px">${icon('camera')} Submit today's runsheet</a>`}
-        <div class="card flush"><div style="padding:16px 16px 0"><h2>Recent runsheets</h2></div>${sheetList(sheets)}</div>`;
-    },
-
-    async runsheets() {
-      const sheets = await api('/api/runsheets?limit=200');
-      return html`<h1>My runsheets</h1><div class="card flush">${sheetList(sheets)}</div>`;
-    },
-
-    async runsheet(id) {
-      const r = await api('/api/runsheets/' + id);
-      return html`<a href="#/runsheets" class="muted small">← Runsheets</a><h1 style="margin-top:8px">${nice(r.work_date)}</h1>
-        <div class="card">${pill(r.status)} ${r.rcti_id ? html`<span class="pill approved">On RCTI</span>` : ''}
-          <dl class="kv" style="margin-top:14px">
-            <dt>Start</dt><dd>${r.start_time}</dd><dt>Finish</dt><dd>${r.finish_time}</dd>
-            <dt>Paid hours</dt><dd><b>${hrs(r.hours)}</b> (start to finish)</dd>
-            <dt>Breaks</dt><dd>${r.breaks.length ? r.breaks.map((b) => `${b.start}–${b.end}`).join(', ') + ` · ${r.break_minutes} min (not deducted)` : 'None'}</dd>
-            <dt>Rate</dt><dd>${money(r.rate)}/hr</dd><dt>Amount</dt><dd><b>${money(r.amount)}</b></dd>
-            ${r.truck_rego ? html`<dt>Truck</dt><dd>${r.truck_rego}</dd>` : ''}
-            ${r.notes ? html`<dt>Your notes</dt><dd>${r.notes}</dd>` : ''}
-            ${r.office_notes ? html`<dt>Office notes</dt><dd>${r.office_notes}</dd>` : ''}
-          </dl></div>
-        ${r.has_photo ? html`<div class="photo-frame"><img src="/api/runsheets/${r.id}/photo" alt="Runsheet photo" onclick="window.open(this.src)"></div>` : ''}
-        <p class="small muted">Something wrong? Call the office and they'll fix it.</p>`;
-    },
-
-    submit() {
-      let uploadId = null;
-      return {
-        html: html`<h1>Submit runsheet</h1>
-          <div id="step1">
-            <label class="capture" for="photoIn">${icon('camera')}<b>Take photo of runsheet</b><span class="muted">or choose one from your gallery</span></label>
-            <input id="photoIn" type="file" accept="image/*" capture="environment" class="hidden">
-            <p class="small muted">Lay the sheet flat, fill the frame, and make sure the times are readable.</p>
-          </div>
-          <div id="step2" class="hidden">
-            <img id="preview" class="photo-preview" alt="">
-            <div class="actions" style="margin:8px 0 16px"><button class="btn ghost sm" id="retake" type="button">Retake photo</button></div>
-            <div id="reading"></div>
-            <form id="rsForm" class="hidden">
-              <div class="field"><label>Date</label><input type="date" name="work_date" required max="${today()}"></div>
-              <div class="grid g2"><div class="field"><label>Start</label><input type="time" name="start_time" required></div><div class="field"><label>Finish</label><input type="time" name="finish_time" required></div></div>
-              <div class="side-note"><b>Breaks</b> are marked on the side for the record. You get paid start to finish as per the runsheet.</div>
-              <div class="breaks" id="breaks"></div>
-              <button type="button" class="btn ghost sm" id="addBreak" style="margin-bottom:16px">+ Add break</button>
-              <div class="calcbox" id="calc"></div>
-              <div class="field"><label>Truck rego <span class="muted">(optional)</span></label><input name="truck_rego" autocapitalize="characters"></div>
-              <div class="field"><label>Notes <span class="muted">(optional)</span></label><textarea name="notes" placeholder="Anything the office should know"></textarea></div>
-              <button class="btn block xl" id="submitBtn">Check &amp; submit</button>
-            </form>
-          </div>`,
-        bind(v) {
-          const form = $('#rsForm', v);
-          const addBreak = (b = {}) => {
-            const row = document.createElement('div');
-            row.className = 'brk';
-            row.innerHTML = html`<div><label>Break start</label><input type="time" class="bs" value="${b.start || ''}"></div><div><label>Break end</label><input type="time" class="be" value="${b.end || ''}"></div><button type="button" class="btn danger sm" aria-label="Remove break">✕</button>`.s;
-            row.querySelector('button').onclick = () => { row.remove(); calc(); };
-            row.querySelectorAll('input').forEach((i) => i.addEventListener('input', calc));
-            $('#breaks', v).appendChild(row);
-          };
-          const breaks = () => $$('.brk', v).map((r) => ({ start: $('.bs', r).value, end: $('.be', r).value })).filter((b) => b.start && b.end);
-          const calc = () => {
-            const m = span(form.start_time.value, form.finish_time.value);
-            const bm = breaks().reduce((a, b) => a + (span(b.start, b.end) || 0), 0);
-            const rate = state.me.hourly_rate || 0;
-            $('#calc', v).innerHTML = m == null ? '<div class="muted">Enter start and finish to see your hours.</div>' : html`
-              <div class="small" style="color:#c5ccd3;text-transform:uppercase;letter-spacing:.08em;font-weight:700">Paid hours</div>
-              <div class="big">${hrs(m / 60)}</div>
-              <div class="row"><span>${form.start_time.value} → ${form.finish_time.value}${m && toMin(form.finish_time.value) < toMin(form.start_time.value) ? ' (overnight)' : ''}</span><span>Breaks ${bm} min · not deducted</span></div>
-              ${rate ? html`<div class="row"><span>@ ${money(rate)}/hr</span><span style="color:#fff;font-weight:700">${money(Math.round(m / 60 * 100) / 100 * rate)}</span></div>` : ''}`.s;
-          };
-          ['start_time', 'finish_time'].forEach((n) => form[n].addEventListener('input', calc));
-          $('#addBreak', v).onclick = () => addBreak();
-          $('#retake', v).onclick = () => $('#photoIn', v).click();
-
-          $('#photoIn', v).addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            $('#step1', v).classList.add('hidden');
-            $('#step2', v).classList.remove('hidden');
-            form.classList.add('hidden');
-            $('#reading', v).innerHTML = html`<div class="card" style="text-align:center"><div class="spinner"></div><b>${state.config.extraction ? 'Reading your runsheet…' : 'Uploading photo…'}</b></div>`.s;
-            try {
-              const blob = await shrink(file);
-              $('#preview', v).src = URL.createObjectURL(blob);
-              const fd = new FormData();
-              fd.append('photo', blob, 'runsheet.jpg');
-              const up = await api('/api/uploads', { method: 'POST', body: fd });
-              uploadId = up.id;
-              const x = up.extracted || {};
-              form.reset();
-              $('#breaks', v).innerHTML = '';
-              form.work_date.value = x.work_date && x.work_date <= today() ? x.work_date : today();
-              form.start_time.value = x.start_time || '';
-              form.finish_time.value = x.finish_time || '';
-              form.truck_rego.value = x.truck_rego || '';
-              (x.breaks || []).forEach(addBreak);
-              let note;
-              if (up.extracted) note = html`<div class="notice ${x.confidence === 'high' ? 'ok' : 'warn'}"><b>Times read from your photo.</b> Check every time against the sheet and fix anything that's wrong before you submit.${x.notes ? html`<br><span class="small">Note: ${x.notes}</span>` : ''}</div>`;
-              else if (up.extraction_error) note = html`<div class="notice warn">${up.extraction_error}</div>`;
-              else note = html`<div class="notice info">Photo attached. Enter the times from your runsheet below.</div>`;
-              $('#reading', v).innerHTML = note.s;
-              form.classList.remove('hidden');
-              calc();
-            } catch (err) {
-              $('#reading', v).innerHTML = html`<div class="notice err">${err.message}</div>`.s;
-            }
-          });
-
-          form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const m = span(form.start_time.value, form.finish_time.value);
-            if (!m) return toast('Check the start and finish times', true);
-            const body = { upload_id: uploadId, work_date: form.work_date.value, start_time: form.start_time.value, finish_time: form.finish_time.value, breaks: breaks(), truck_rego: form.truck_rego.value, notes: form.notes.value };
-            const ok = await confirmDialog('Submit runsheet?', html`<dl class="kv"><dt>Date</dt><dd>${nice(body.work_date)}</dd><dt>Start → Finish</dt><dd>${body.start_time} → ${body.finish_time}</dd><dt>Paid hours</dt><dd><b>${hrs(m / 60)}</b></dd><dt>Breaks</dt><dd>${body.breaks.length ? body.breaks.map((b) => `${b.start}–${b.end}`).join(', ') : 'None'}</dd></dl><p class="small muted">Once submitted, only the office can change it.</p>`, 'Submit');
-            if (!ok) return;
-            $('#submitBtn', v).disabled = true;
-            try {
-              const r = await api('/api/runsheets', { method: 'POST', body });
-              v.innerHTML = html`<div class="card" style="text-align:center;padding:30px 18px">
-                <div style="font-size:54px">✅</div><h1>Runsheet submitted</h1>
-                <p><b>${hrs(r.hours)} hours</b> on ${nice(r.work_date)} · ${money(r.amount)}</p>
-                <p class="muted small">A copy has gone to the office.</p>
-                <div class="actions" style="justify-content:center;margin-top:16px"><a class="btn" href="#/">Done</a><a class="btn ghost" href="#/runsheet/${r.id}">View</a></div></div>`.s;
-            } catch (err) { fail(err); $('#submitBtn', v).disabled = false; }
-          });
-        },
-      };
+        <div class="card flush"><div style="padding:16px 16px 0"><h2>Latest RCTIs</h2></div>${rctiList(rctis.slice(0, 4))}
+          ${rctis.length > 4 ? html`<div style="padding:0 16px 16px"><a class="btn ghost sm" href="#/pay">See all RCTIs</a></div>` : ''}</div>
+        <p class="small muted">The office enters your hours from your runsheets. Each week's RCTI shows here once the office sends it to you.</p>`;
     },
 
     async pay() {
-      const [sum, rctis] = await Promise.all([api('/api/pay/summary'), api('/api/rctis')]);
-      return html`<h1>My pay</h1>
-        <div class="paycards">
-          <div class="stat amber"><div class="k">Pending</div><div class="v">${money(sum.pending)}</div></div>
-          <div class="stat dark"><div class="k">Cleared</div><div class="v">${money(sum.cleared)}</div></div>
-        </div>
-        <div class="card flush"><div style="padding:16px 16px 0"><h2>By week</h2><p class="small muted" style="margin-top:-6px">Weeks run Sunday to Saturday. Your rate includes GST if you're registered.</p></div>
-          ${sum.weeks.length ? html`<ul class="list">${sum.weeks.map((w) => html`<li><div class="grow"><b>${short(w.week_start)} – ${short(w.week_end)}</b><div class="small muted">${w.days} day${w.days === 1 ? '' : 's'} · ${hrs(w.hours)} hrs</div><div style="margin-top:4px">${pill(w.status)}</div></div><div class="right"><div class="amount">${money(w.total)}</div>${w.paid && w.pending ? html`<div class="small muted">${money(w.paid)} paid</div>` : ''}</div></li>`)}</ul>` : html`<div class="empty">No pay yet. Submit your first runsheet to get started.</div>`}
-        </div>
-        <div class="card flush"><div style="padding:16px 16px 0"><h2>My RCTIs</h2></div>
-          ${rctis.length ? html`<ul class="list">${rctis.map((r) => html`<li><div class="grow"><b>${r.number}</b><div class="small muted">${short(r.period_start)} – ${short(r.period_end)} · ${hrs(r.total_hours)} hrs</div><div style="margin-top:4px">${r.paid_at ? html`<span class="pill paid">Paid ${auDate(r.paid_at)}</span>` : html`<span class="pill rcti_issued">Payment pending</span>`}</div></div><div class="right"><div class="amount">${money(r.total)}</div><a class="btn sm dark" style="margin-top:6px" href="/api/rctis/${r.id}/pdf" target="_blank">PDF</a></div></li>`)}</ul>` : html`<div class="empty">Your RCTIs will appear here once the office sends them.</div>`}
-        </div>`;
+      const rctis = await api('/api/rctis');
+      return html`<h1>My RCTIs</h1>
+        <div class="card flush">${rctiList(rctis)}</div>
+        <p class="small muted">Weeks run Sunday to Saturday. Your rate includes GST if you're registered. Something wrong? Call the office.</p>`;
+    },
+
+    async rcti(id) {
+      const r = await api('/api/rctis/' + id);
+      return html`<a href="#/pay" class="muted small">← My RCTIs</a><h1 style="margin-top:8px">${r.number}</h1>
+        <div class="card"><div>${r.paid_at ? html`<span class="pill paid">Paid ${auDate(r.paid_at)}</span>` : html`<span class="pill rcti_issued">Unpaid</span>`}</div>
+          <dl class="kv" style="margin-top:14px"><dt>Week</dt><dd>${short(r.period_start)} – ${short(r.period_end)}</dd><dt>Hours</dt><dd>${hrs(r.total_hours)}</dd>
+            <dt>Ex GST</dt><dd>${money(r.subtotal)}</dd><dt>GST</dt><dd>${money(r.gst)}</dd><dt>Total</dt><dd><b>${money(r.total)}</b></dd></dl>
+          <a class="btn dark block" href="/api/rctis/${r.id}/pdf" target="_blank" style="margin-top:14px">View PDF</a></div>
+        <div class="card flush"><div class="tablewrap"><table><thead><tr><th>Date</th><th>Start</th><th>Finish</th><th>Breaks (not deducted)</th><th class="num">Hours</th><th class="num">Amount</th></tr></thead>
+          <tbody>${r.runsheets.map((s) => html`<tr><td>${nice(s.work_date)}</td><td>${s.start_time}</td><td>${s.finish_time}</td><td class="muted">${s.breaks.map((b) => `${b.start}–${b.end}`).join(', ') || '—'}</td><td class="num">${hrs(s.hours)}</td><td class="num">${money(s.amount)}</td></tr>`)}</tbody></table></div></div>
+        <p class="small muted">Only the office can change an RCTI. Call them if something is wrong.</p>`;
     },
 
     async profile() {
@@ -345,7 +216,7 @@
           <div class="card"><h2>Details on your RCTI</h2><dl class="kv">
             <dt>Name</dt><dd>${me.name}</dd><dt>Business</dt><dd>${me.business_name || '—'}</dd><dt>ABN</dt><dd>${me.abn || '—'}</dd>
             <dt>GST</dt><dd>${me.gst_registered ? 'Registered' : 'Not registered'}</dd><dt>Address</dt><dd>${me.address || '—'}</dd>
-            <dt>Hourly rate</dt><dd>${money(me.hourly_rate)}/hr incl. GST</dd></dl></div>
+            <dt>Mobile</dt><dd>${me.phone || '—'}</dd><dt>Hourly rate</dt><dd>${money(me.hourly_rate)}/hr incl. GST</dd></dl></div>
           <div class="card"><h2>Pay into</h2><dl class="kv"><dt>Account name</dt><dd>${me.bank_account_name || '—'}</dd><dt>BSB</dt><dd>${me.bank_bsb || '—'}</dd><dt>Account</dt><dd>${me.bank_account_number ? '•••• ' + me.bank_account_number.slice(-4) : '—'}</dd></dl>
             <p class="small muted">To change any of these, contact the SB Truckin office.</p></div>
           ${passwordCard()}`,
@@ -354,14 +225,10 @@
     },
   };
 
-  function sheetList(sheets) {
-    if (!sheets.length) return html`<div class="empty">No runsheets yet.</div>`;
-    return html`<ul class="list">${sheets.map((s) => {
-      const d = pd(s.work_date);
-      return html`<li><a class="row" href="#/runsheet/${s.id}"><div class="datebox"><b>${d.getDate()}</b><span>${d.toLocaleDateString('en-AU', { month: 'short' })}</span></div>
-        <div class="grow"><b>${s.start_time} – ${s.finish_time}</b><div class="small muted">${hrs(s.hours)} hrs${s.break_minutes ? ` · ${s.break_minutes} min breaks` : ''}</div><div style="margin-top:3px">${pill(s.status)} ${s.rcti_paid_at ? html`<span class="pill paid">Paid</span>` : ''}</div></div>
-        <div class="amount">${money(s.amount)}</div></a></li>`;
-    })}</ul>`;
+  function rctiList(rctis) {
+    if (!rctis.length) return html`<div class="empty">Your RCTIs will appear here once the office sends them.</div>`;
+    return html`<ul class="list">${rctis.map((r) => html`<li><a class="row" href="#/rcti/${r.id}"><div class="grow"><b>${short(r.period_start)} – ${short(r.period_end)}</b><div class="small muted">${r.number} · ${hrs(r.total_hours)} hrs</div>
+      <div style="margin-top:4px">${r.paid_at ? html`<span class="pill paid">Paid ${auDate(r.paid_at)}</span>` : html`<span class="pill rcti_issued">Unpaid</span>`}</div></div><div class="amount">${money(r.total)}</div></a></li>`)}</ul>`;
   }
 
   function passwordCard() {
@@ -388,21 +255,6 @@
     });
   }
 
-  // Shrink photos on the phone before upload: quicker on mobile data and plenty for reading times.
-  async function shrink(file, max = 1600) {
-    try {
-      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-      const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
-      const c = document.createElement('canvas');
-      c.width = Math.round(bmp.width * scale);
-      c.height = Math.round(bmp.height * scale);
-      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-      return await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.8));
-    } catch {
-      return file;
-    }
-  }
-
   // =====================================================================
   // OFFICE
   // =====================================================================
@@ -414,15 +266,14 @@
   const OFFICE = {
     async ''() {
       const d = await api('/api/office/dashboard');
-      state.cache.toReview = d.to_review;
       return html`<h1>Dashboard</h1>
         ${state.config.storage_safe === false ? html`<div class="notice err"><b>Data is not being kept.</b> No storage volume is attached in Railway, so drivers, runsheets and RCTIs are wiped every time a new version goes live.</div>` : ''}
         ${d.missing_details.length ? html`<div class="notice warn"><b>Missing RCTI details:</b> ${d.missing_details.map((x, i) => html`${i ? ', ' : ''}<a href="#/driver/${x.id}">${x.name}</a>`)} need a rate, ABN or bank details before their RCTIs are complete.</div>` : ''}
         <div class="grid g4" style="margin-bottom:16px">
           <div class="stat dark"><div class="k">This week</div><div class="v">${hrs(d.this_week.hours)}<span style="font-size:16px"> hrs</span></div><div class="s">${d.this_week.n} runsheets · ${money(d.this_week.amount)}</div></div>
-          <a class="stat amber" href="#/runsheets?status=submitted" style="text-decoration:none"><div class="k">To review</div><div class="v">${d.to_review}</div><div class="s">Submitted runsheets</div></a>
-          <a class="stat" href="#/rctis" style="text-decoration:none"><div class="k">Unpaid RCTIs</div><div class="v">${d.unpaid_rctis.n}</div><div class="s">${money(d.unpaid_rctis.total)} owing</div></a>
-          <a class="stat" href="#/rctis" style="text-decoration:none"><div class="k">Not yet pushed</div><div class="v">${d.not_pushed}</div><div class="s">Driver copies held</div></a>
+          <a class="stat amber" href="#/rctis" style="text-decoration:none"><div class="k">Unpaid RCTIs</div><div class="v">${d.unpaid_rctis.n}</div><div class="s">${money(d.unpaid_rctis.total)} owing</div></a>
+          <a class="stat" href="#/rctis" style="text-decoration:none"><div class="k">Not sent yet</div><div class="v">${d.not_pushed}</div><div class="s">Drivers can't see these</div></a>
+          <a class="stat" href="#/payments" style="text-decoration:none"><div class="k">Paid this month</div><div class="v">${money(d.paid_month.total)}</div><div class="s">${d.paid_month.n} RCTIs</div></a>
         </div>
         <div class="grid g2 stack">
           <div class="card"><h2>Last week</h2><p class="muted" style="margin-top:-6px">${short(d.last_week.start)} – ${short(d.last_week.end)}</p>
@@ -430,8 +281,8 @@
             ${d.uninvoiced_past ? html`<div class="notice warn" style="margin-top:14px">${d.uninvoiced_past} runsheet(s) from past weeks are not on an RCTI yet.</div>` : ''}
             <a class="btn dark" href="#/rctis?week=${d.last_week.start}" style="margin-top:12px">Open last week's RCTIs</a></div>
           <div class="card"><h2>Quick links</h2><div class="actions">
-            <a class="btn" href="#/runsheets?status=submitted">Review runsheets</a><a class="btn ghost" href="#/drivers">Drivers &amp; rates</a><a class="btn ghost" href="#/settings">Company details</a></div>
-            <p class="small muted" style="margin-top:14px">RCTIs are created automatically every Sunday at 1am for the week just finished, and office copies are emailed. Driver copies wait here until you push them.</p></div>
+            <a class="btn" href="#/entry">Enter driver times</a><a class="btn ghost" href="#/payments">Payments for BAS</a><a class="btn ghost" href="#/drivers">Drivers &amp; rates</a></div>
+            <p class="small muted" style="margin-top:14px">Enter each driver's week from their runsheets, then press Finish week to make the RCTI and send it on WhatsApp. Anything left over is made into RCTIs automatically every Sunday at 1am. Drivers only see an RCTI once you send it.</p></div>
         </div>`;
     },
 
@@ -450,7 +301,7 @@
               <select data-f="driver_id"><option value="">All drivers</option>${ds.map((d) => html`<option value="${d.id}" ${String(d.id) === q.get('driver_id') ? 'selected' : ''}>${d.name}</option>`)}</select>
               <select data-f="status"><option value="">Any status</option>${['submitted', 'approved', 'rejected'].map((s) => html`<option value="${s}" ${q.get('status') === s ? 'selected' : ''}>${STATUS[s]}</option>`)}</select>
               <input type="date" data-f="week" value="${wk}" title="Week containing this date">
-              <button class="btn sm dark" id="addRs">+ Enter runsheet</button>
+              <a class="btn sm dark" href="#/entry${q.get('driver_id') ? '?driver_id=' + q.get('driver_id') : ''}">+ Enter times</a>
             </div></div>
           <div class="card flush"><div class="tablewrap"><table>
             <thead><tr><th>Date</th><th>Driver</th><th>Start</th><th>Finish</th><th>Breaks</th><th class="num">Hours</th><th class="num">Rate</th><th class="num">Amount</th><th>Status</th><th>RCTI</th><th></th></tr></thead>
@@ -466,7 +317,6 @@
             location.hash = '#/runsheets?' + p;
           }));
           bindRows(v);
-          $('#addRs', v).onclick = () => officeEntryDialog(ds);
           $$('[data-del]', v).forEach((b) => (b.onclick = () => deleteRunsheet(rows.find((x) => String(x.id) === b.dataset.del), render)));
         },
       };
@@ -548,16 +398,16 @@
             <p class="muted" style="margin-top:-6px">${openDrivers.map(([, x], i) => html`${i ? ', ' : ''}${x.name} (${x.open})`)} have runsheets this week not yet on an RCTI.${wk >= weekStart(today()) ? ' This week is still running.' : ''}</p>
             <div class="actions"><button class="btn" id="gen">Create RCTIs for this week</button><label class="check small"><input type="checkbox" id="genMail" checked> Email office copies</label></div></div>` : ''}
           <div class="card flush"><div class="tablewrap"><table>
-            <thead><tr><th>RCTI</th><th>Driver</th><th class="num">Days</th><th class="num">Hours</th><th class="num">Ex GST</th><th class="num">GST</th><th class="num">Total</th><th>Office copy</th><th>Driver copy</th><th>Paid</th><th></th></tr></thead>
+            <thead><tr><th>RCTI</th><th>Driver</th><th class="num">Days</th><th class="num">Hours</th><th class="num">Ex GST</th><th class="num">GST</th><th class="num">Total</th><th>Office copy</th><th>Send to driver</th><th>Paid</th><th></th></tr></thead>
             <tbody>${list.length ? list.map((r) => html`<tr>
               <td><a href="#/rcti/${r.id}"><b>${r.number}</b></a></td><td>${r.driver_name}</td><td class="num">${r.runsheet_count}</td><td class="num">${hrs(r.total_hours)}</td><td class="num">${money(r.subtotal)}</td><td class="num">${money(r.gst)}</td><td class="num"><b>${money(r.total)}</b></td>
               <td>${r.office_emailed_at ? html`<span class="pill approved">Emailed</span>` : html`<button class="btn sm ghost" data-mail="${r.id}">Email</button>`}</td>
-              <td>${r.pushed_at ? html`<span class="pill paid">Pushed</span>` : html`<button class="btn sm dark" data-push="${r.id}">Push</button>`}</td>
-              <td>${r.paid_at ? html`<span class="pill paid">${auDate(r.paid_at)}</span>` : html`<button class="btn sm green" data-paid="${r.id}">Mark paid</button>`}</td>
+              <td class="nowrap"><button class="btn sm wa" data-wa="${r.id}">WhatsApp</button> ${r.pushed_at ? html`<span class="pill paid">Sent</span>` : html`<button class="btn sm ghost" data-push="${r.id}">In app</button>`}</td>
+              <td class="nowrap">${r.paid_at ? html`<span class="pill paid">Paid ${auDate(r.paid_at)}</span> <button class="btn sm ghost" data-unpaid="${r.id}">Unpaid</button>` : html`<span class="pill rcti_issued">Unpaid</span> <button class="btn sm green" data-paid="${r.id}">Mark paid</button>`}</td>
               <td><a class="btn sm ghost" href="/api/rctis/${r.id}/pdf" target="_blank">PDF</a></td></tr>`) : html`<tr><td colspan="11" class="empty">No RCTIs for this week yet.</td></tr>`}</tbody>
             ${list.length ? html`<tfoot><tr><td colspan="3">${list.length} RCTIs</td><td class="num">${hrs(list.reduce((a, r) => a + r.total_hours, 0))}</td><td class="num">${money(list.reduce((a, r) => a + r.subtotal, 0))}</td><td class="num">${money(list.reduce((a, r) => a + r.gst, 0))}</td><td class="num">${money(list.reduce((a, r) => a + r.total, 0))}</td><td colspan="4"></td></tr></tfoot>` : ''}
           </table></div></div>
-          ${list.some((r) => !r.pushed_at) ? html`<div class="actions"><button class="btn dark" id="pushAll">Push all driver copies</button></div>` : ''}`,
+          ${list.some((r) => !r.pushed_at) ? html`<div class="actions"><button class="btn dark" id="pushAll">Show all in drivers' app</button></div>` : ''}`,
         bind(v) {
           $('#gen', v) && ($('#gen', v).onclick = async () => {
             try {
@@ -570,6 +420,8 @@
           $$('[data-mail]', v).forEach((b) => (b.onclick = async () => { try { emailToast(await api(`/api/rctis/${b.dataset.mail}/email-office`, { method: 'POST' })); render(); } catch (err) { fail(err); } }));
           $$('[data-push]', v).forEach((b) => (b.onclick = () => pushDialog([b.dataset.push])));
           $$('[data-paid]', v).forEach((b) => (b.onclick = () => paidDialog(b.dataset.paid)));
+          $$('[data-unpaid]', v).forEach((b) => (b.onclick = () => markUnpaid(b.dataset.unpaid)));
+          $$('[data-wa]', v).forEach((b) => (b.onclick = () => waDialog(b.dataset.wa)));
           $('#pushAll', v) && ($('#pushAll', v).onclick = () => pushDialog(list.filter((r) => !r.pushed_at).map((r) => r.id)));
         },
       };
@@ -580,7 +432,7 @@
       return {
         html: html`<a href="#/rctis?week=${r.period_start}" class="muted small">← Pay &amp; RCTIs</a>
           <div class="toolbar" style="margin-top:8px"><h1 style="margin:0">${r.number} · ${r.driver_name}</h1>
-            <div class="actions">${r.paid_at ? html`<span class="pill paid">Paid ${auDate(r.paid_at)}${r.payment_ref ? ' · ' + r.payment_ref : ''}</span>` : html`<span class="pill rcti_issued">Unpaid</span>`} ${r.pushed_at ? html`<span class="pill paid">Pushed to driver</span>` : html`<span class="pill">Held from driver</span>`}</div></div>
+            <div class="actions">${r.paid_at ? html`<span class="pill paid">Paid ${auDate(r.paid_at)}${r.payment_ref ? ' · ' + r.payment_ref : ''}</span>` : html`<span class="pill rcti_issued">Unpaid</span>`} ${r.pushed_at ? html`<span class="pill paid">Sent to driver</span>` : html`<span class="pill">Not sent to driver</span>`}</div></div>
           <div class="grid g4" style="margin-bottom:16px">
             <div class="stat"><div class="k">Week</div><div class="v" style="font-size:22px">${short(r.period_start)} – ${short(r.period_end)}</div></div>
             <div class="stat"><div class="k">Hours</div><div class="v">${hrs(r.total_hours)}</div></div>
@@ -588,9 +440,10 @@
             <div class="stat dark"><div class="k">Total</div><div class="v">${money(r.total)}</div></div>
           </div>
           <div class="card actions">
+            <button class="btn wa" id="wa">Send on WhatsApp</button>
             <a class="btn dark" href="/api/rctis/${r.id}/pdf" target="_blank">View PDF</a>
             <button class="btn ghost" id="mail">Email office copy</button>
-            ${r.pushed_at ? html`<button class="btn ghost" id="unpush">Pull back from driver</button>` : html`<button class="btn" id="push">Push to driver</button>`}
+            ${r.pushed_at ? html`<button class="btn ghost" id="unpush">Hide from driver</button>` : html`<button class="btn ghost" id="push">Show in driver's app</button>`}
             ${r.paid_at ? html`<button class="btn ghost" id="unpaid">Mark unpaid</button>` : html`<button class="btn green" id="paid">Mark paid</button>`}
             ${!r.paid_at ? html`<button class="btn ghost" id="rebuild" title="Re-total after edits and pick up late runsheets">Re-total</button><button class="btn danger" id="void">Void RCTI</button>` : ''}
           </div>
@@ -604,12 +457,131 @@
           act('#push', async () => pushDialog([r.id]));
           act('#unpush', async () => { await api(`/api/rctis/${r.id}/unpush`, { method: 'POST' }); toast('Hidden from driver'); render(); });
           act('#paid', async () => paidDialog(r.id));
-          act('#unpaid', async () => { await api(`/api/rctis/${r.id}/paid`, { method: 'POST', body: { paid: false } }); toast('Marked unpaid'); render(); });
+          act('#unpaid', async () => markUnpaid(r.id));
+          act('#wa', async () => waDialog(r.id));
           act('#rebuild', async () => { await api(`/api/rctis/${r.id}/rebuild`, { method: 'POST' }); toast('RCTI re-totalled'); render(); });
           act('#void', async () => {
             if (!(await confirmDialog('Void this RCTI?', html`<p>${r.number} will be deleted and its runsheets released so a new RCTI can be created.</p>`, 'Void', true))) return;
             await api('/api/rctis/' + r.id, { method: 'DELETE' }); toast('RCTI voided'); location.hash = '#/rctis?week=' + r.period_start;
           });
+        },
+      };
+    },
+
+    // Office types a driver's week straight off the runsheets: one row per day, Sunday to Saturday.
+    async entry() {
+      const q = query();
+      const ds = (await drivers()).filter((x) => x.active);
+      const wk = weekStart(q.get('week') || today());
+      const d = ds.find((x) => String(x.id) === q.get('driver_id'));
+      const [sheets, rctis] = d ? await Promise.all([api(`/api/runsheets?driver_id=${d.id}&from=${wk}&to=${addDays(wk, 6)}&limit=100`), api(`/api/rctis?driver_id=${d.id}&week=${wk}`)]) : [[], []];
+      const rows = [];
+      for (let i = 0; i < 7; i++) {
+        const day = addDays(wk, i);
+        const got = sheets.filter((s) => s.work_date === day && s.status !== 'rejected').sort((a, b) => a.start_time.localeCompare(b.start_time));
+        if (got.length) rows.push(...got); else rows.push({ work_date: day });
+      }
+      const link = (p) => '#/entry?' + new URLSearchParams({ ...(d ? { driver_id: d.id } : {}), week: p });
+      const row = (s) => {
+        const lock = s.breaks && s.breaks.length > 1;
+        const b = (s.breaks && s.breaks[0]) || {};
+        return html`<tr data-date="${s.work_date}" data-id="${s.id || ''}" data-rate="${s.id ? s.rate : d.hourly_rate}" ${lock ? 'data-lock="1"' : ''}>
+          <td class="nowrap"><b>${nice(s.work_date)}</b></td>
+          <td><input type="time" class="st" value="${s.start_time || ''}"></td><td><input type="time" class="fi" value="${s.finish_time || ''}"></td>
+          <td>${lock ? html`<span class="small muted">${s.breaks.map((x) => `${x.start}–${x.end}`).join(', ')}</span>` : html`<div class="brkpair"><input type="time" class="bs" value="${b.start || ''}"><span>to</span><input type="time" class="be" value="${b.end || ''}"></div>`}</td>
+          <td class="num hh">—</td><td class="num am">—</td>
+          <td class="nowrap">${s.id ? html`${s.rcti_number ? html`<span class="pill approved">${s.rcti_number}</span> ` : ''}<button type="button" class="btn sm danger" data-del="${s.id}" title="Delete this day">✕</button>` : ''}</td></tr>`;
+      };
+      return {
+        html: html`<div class="toolbar"><h1 style="margin:0">Enter times</h1>
+            <div class="weeknav"><a class="btn ghost sm" href="${link(addDays(wk, -7))}">◀</a><b>${short(wk)} – ${short(addDays(wk, 6))}</b><a class="btn ghost sm" href="${link(addDays(wk, 7))}">▶</a></div></div>
+          <div class="card"><div class="field" style="margin:0"><label>Driver</label><select id="drv"><option value="">Pick a driver…</option>${ds.map((x) => html`<option value="${x.id}" ${d && x.id === d.id ? 'selected' : ''}>${x.name}</option>`)}</select></div>
+            ${d && !d.hourly_rate ? html`<div class="notice warn" style="margin:12px 0 0">${d.name} has no hourly rate yet. <a href="#/driver/${d.id}">Set it on their page</a> first.</div>` : ''}</div>
+          ${d ? html`
+            ${rctis.length ? html`<div class="notice info">This week already has ${rctis.map((r, i) => html`${i ? ', ' : ''}<a href="#/rcti/${r.id}">${r.number}</a>${r.paid_at ? ' (paid)' : ''}`)}. Saving changes re-totals it.</div>` : ''}
+            <div class="card flush"><div class="tablewrap"><table class="entry">
+              <thead><tr><th>Day</th><th>Start</th><th>Finish</th><th>Break</th><th class="num">Hours</th><th class="num">Amount</th><th></th></tr></thead>
+              <tbody>${rows.map(row)}</tbody>
+              <tfoot><tr><td colspan="4">Week total at ${money(d.hourly_rate)}/hr incl. GST</td><td class="num" id="tH">0.00</td><td class="num" id="tA">$0.00</td><td></td></tr></tfoot>
+            </table></div></div>
+            <p class="small muted">Leave a day blank if they didn't work. Paid hours run start to finish; the break is recorded only.</p>
+            <div class="actions"><button class="btn ghost xl" id="save">Save week</button><button class="btn xl" id="finish">Finish week &amp; make RCTI</button></div>` : html`<div class="empty card">Pick a driver to enter their week.</div>`}`,
+        bind(v) {
+          $('#drv', v).onchange = (e) => { location.hash = '#/entry?' + new URLSearchParams({ ...(e.target.value ? { driver_id: e.target.value } : {}), week: wk }); };
+          if (!d) return;
+          const trs = $$('tbody tr', v);
+          const calc = () => {
+            let th = 0; let ta = 0;
+            for (const tr of trs) {
+              const m = span($('.st', tr).value, $('.fi', tr).value);
+              const h = m ? Math.round(m / 60 * 100) / 100 : 0;
+              const a = Math.round(h * Number(tr.dataset.rate || 0) * 100) / 100;
+              $('.hh', tr).textContent = h ? hrs(h) : '—';
+              $('.am', tr).textContent = h ? money(a) : '—';
+              th += h; ta += a;
+            }
+            $('#tH', v).textContent = hrs(th);
+            $('#tA', v).textContent = money(ta);
+          };
+          $$('input', v).forEach((i) => i.addEventListener('input', calc));
+          calc();
+          $$('[data-del]', v).forEach((b) => (b.onclick = () => deleteRunsheet(sheets.find((x) => String(x.id) === b.dataset.del), render)));
+          const save = async () => {
+            const days = [];
+            for (const tr of trs) {
+              const st = $('.st', tr).value; const fi = $('.fi', tr).value;
+              if (!st && !fi) continue;
+              if (!st || !fi) throw new Error(`${nice(tr.dataset.date)}: enter both start and finish`);
+              const x = { work_date: tr.dataset.date, start_time: st, finish_time: fi };
+              if (tr.dataset.id) x.id = Number(tr.dataset.id);
+              if (!tr.dataset.lock) { const bs = $('.bs', tr).value; const be = $('.be', tr).value; x.breaks = bs && be ? [{ start: bs, end: be }] : []; }
+              days.push(x);
+            }
+            if (!days.length) throw new Error('Enter at least one day');
+            return api('/api/runsheets/week', { method: 'POST', body: { driver_id: d.id, week: wk, days } });
+          };
+          const busy = (on) => { $('#save', v).disabled = on; $('#finish', v).disabled = on; };
+          $('#save', v).onclick = async () => { busy(true); try { const o = await save(); toast(`Saved: ${o.added} added, ${o.changed} changed`); render(); } catch (err) { busy(false); fail(err); } };
+          $('#finish', v).onclick = async () => {
+            busy(true);
+            try {
+              await save();
+              const o = await api('/api/rctis/finish-week', { method: 'POST', body: { driver_id: d.id, week: wk } });
+              toast('RCTI ready. Send it on WhatsApp.');
+              location.hash = '#/rcti/' + o.id;
+            } catch (err) { busy(false); fail(err); }
+          };
+        },
+      };
+    },
+
+    // Every payment made to contractors, by month, with BAS quarter totals.
+    async payments() {
+      const fyq = query().get('fy');
+      const p = await api('/api/payments' + (fyq ? '?fy=' + fyq : ''));
+      const sum = (rs) => rs.reduce((a, r) => ({ n: a.n + 1, ex: a.ex + r.subtotal, gst: a.gst + r.gst, t: a.t + r.total }), { n: 0, ex: 0, gst: 0, t: 0 });
+      const months = new Map();
+      for (const r of p.rows) { const m = r.paid_at.slice(0, 7); if (!months.has(m)) months.set(m, []); months.get(m).push(r); }
+      const monthName = (m) => new Date(+m.slice(0, 4), +m.slice(5) - 1, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+      const quarters = [['Q1', 'Jul – Sep', [7, 8, 9]], ['Q2', 'Oct – Dec', [10, 11, 12]], ['Q3', 'Jan – Mar', [1, 2, 3]], ['Q4', 'Apr – Jun', [4, 5, 6]]]
+        .map(([q, label, ms]) => [q, label, sum(p.rows.filter((r) => ms.includes(+r.paid_at.slice(5, 7))))]);
+      const all = sum(p.rows);
+      return {
+        html: html`<div class="toolbar"><h1 style="margin:0">Payments</h1>
+            <div class="filters"><select id="fy">${p.years.map((y) => html`<option value="${y}" ${y === p.fy ? 'selected' : ''}>FY ${y - 1}–${String(y).slice(2)}</option>`)}</select>
+              <a class="btn sm dark" href="/api/payments.csv?fy=${p.fy}">Download for accountant (CSV)</a></div></div>
+          <p class="muted" style="margin-top:-6px">Every RCTI marked paid, by the date it was paid (${auDate(p.from)} to ${auDate(p.to)}).${p.unpaid.n ? html` <a href="#/rctis">${p.unpaid.n} RCTI${p.unpaid.n === 1 ? '' : 's'} (${money(p.unpaid.total)})</a> not paid yet.` : ''}</p>
+          <div class="card flush"><div style="padding:16px 16px 0"><h2>BAS quarters</h2></div><div class="tablewrap"><table>
+            <thead><tr><th>Quarter</th><th>Months</th><th class="num">Payments</th><th class="num">Ex GST</th><th class="num">GST</th><th class="num">Total paid</th></tr></thead>
+            <tbody>${quarters.map(([q, label, x]) => html`<tr><td><b>${q}</b></td><td>${label}</td><td class="num">${x.n}</td><td class="num">${money(x.ex)}</td><td class="num">${money(x.gst)}</td><td class="num"><b>${money(x.t)}</b></td></tr>`)}</tbody>
+            <tfoot><tr><td colspan="2">Financial year</td><td class="num">${all.n}</td><td class="num">${money(all.ex)}</td><td class="num">${money(all.gst)}</td><td class="num">${money(all.t)}</td></tr></tfoot></table></div></div>
+          ${months.size ? [...months.entries()].reverse().map(([m, rs]) => { const x = sum(rs); return html`<div class="card flush"><div style="padding:16px 16px 0"><h2>${monthName(m)} <span class="muted small" style="text-transform:none;font-family:var(--body);margin-left:auto">${money(x.t)} · GST ${money(x.gst)}</span></h2></div><div class="tablewrap"><table>
+            <thead><tr><th>Paid</th><th>Contractor</th><th>ABN</th><th>RCTI</th><th>Week</th><th class="num">Ex GST</th><th class="num">GST</th><th class="num">Total</th><th>Ref</th></tr></thead>
+            <tbody>${rs.map((r) => html`<tr class="click" data-go="#/rcti/${r.id}"><td class="nowrap">${auDate(r.paid_at)}</td><td>${r.driver_name}${r.business_name ? html`<div class="small muted">${r.business_name}</div>` : ''}</td><td class="nowrap">${r.abn || '—'}</td><td>${r.number}</td><td class="nowrap">${short(r.period_start)} – ${short(r.period_end)}</td><td class="num">${money(r.subtotal)}</td><td class="num">${money(r.gst)}</td><td class="num"><b>${money(r.total)}</b></td><td class="small">${r.payment_ref || ''}</td></tr>`)}</tbody>
+            <tfoot><tr><td colspan="5">${rs.length} payment${rs.length === 1 ? '' : 's'}</td><td class="num">${money(x.ex)}</td><td class="num">${money(x.gst)}</td><td class="num">${money(x.t)}</td><td></td></tr></tfoot></table></div></div>`; }) : html`<div class="card empty">No payments marked paid in this financial year yet.</div>`}`,
+        bind(v) {
+          $('#fy', v).onchange = (e) => { location.hash = '#/payments?fy=' + e.target.value; };
+          bindRows(v);
         },
       };
     },
@@ -634,13 +606,13 @@
       return {
         html: html`<a href="#/drivers" class="muted small">← Drivers</a><h1 style="margin-top:8px">${isNew ? 'Add driver' : d.name}</h1>
           ${sum ? html`<div class="grid g3" style="margin-bottom:16px"><div class="stat amber"><div class="k">Pending</div><div class="v">${money(sum.pending)}</div></div><div class="stat dark"><div class="k">Cleared</div><div class="v">${money(sum.cleared)}</div></div><div class="stat"><div class="k">This week</div><div class="v">${hrs(sum.this_week.hours)} hrs</div></div></div>
-            <div class="actions" style="margin-bottom:16px"><a class="btn ghost sm" href="#/runsheets?driver_id=${d.id}">Runsheets</a></div>` : ''}
+            <div class="actions" style="margin-bottom:16px"><a class="btn sm" href="#/entry?driver_id=${d.id}">Enter times</a><a class="btn ghost sm" href="#/runsheets?driver_id=${d.id}">Runsheets</a><a class="btn ghost sm" href="#/rctis">RCTIs</a></div>` : ''}
           <form id="dForm">
             <div class="card"><h2>Driver &amp; login</h2><div class="grid g2 stack">
-              ${f('name', 'Full name', 'required')}${f('phone', 'Mobile', 'type="tel"')}
+              ${f('name', 'Full name', 'required')}${f('phone', 'Mobile', 'type="tel"', 'Used to send RCTIs on WhatsApp')}
               ${f('email', 'Email (login)', 'type="email" required')}
               <div class="field"><label>${isNew ? 'Starting password' : 'Reset password'}</label><input name="password" type="text" ${isNew ? 'required minlength="8"' : 'minlength="8" placeholder="Leave blank to keep"'} autocomplete="off"><div class="hint">At least 8 characters. Give this to the driver.</div></div>
-            </div><label class="check"><input type="checkbox" name="active" ${d.active ? 'checked' : ''}> Active (can log in and submit)</label></div>
+            </div><label class="check"><input type="checkbox" name="active" ${d.active ? 'checked' : ''}> Active (can log in and see their RCTIs)</label></div>
             <div class="card"><h2>Pay rate</h2><div class="grid g2 stack">
               ${f('hourly_rate', 'Hourly rate ($ incl. GST)', 'type="number" step="0.01" min="0" required')}
               ${isNew ? '' : html`<div class="field"><label>&nbsp;</label><label class="check"><input type="checkbox" name="apply_rate_to_open"> Apply new rate to runsheets not yet on an RCTI</label></div>`}
@@ -683,7 +655,6 @@
           <div class="grid g2 stack" style="margin-bottom:16px">
             <div class="notice ${s.smtp ? 'ok' : 'warn'}" style="margin:0"><b>Email:</b> ${s.smtp ? 'sending from your email account.' : 'not connected yet. Add a Brevo API key below. Until then emails are only saved in the Email log.'}</div>
             ${s.storage_safe ? '' : html`<div class="notice err" style="margin:0;grid-column:1/-1"><b>Data is not being kept.</b> No storage volume is attached in Railway, so drivers, runsheets and RCTIs are wiped every time a new version goes live.</div>`}
-            <div class="notice ${s.extraction ? 'ok' : 'warn'}" style="margin:0"><b>Photo reading:</b> ${s.extraction ? 'on. Times are read off runsheet photos for drivers to check.' : 'off. Drivers type times in from the photo.'}</div>
           </div>
           ${s.smtp_from_env || s.brevo_from_env ? '' : html`<form class="card" id="mailForm"><h2>Email account (sends runsheets and RCTIs)</h2>
             ${state.mailResult ? html`<div class="notice ${state.mailResult.ok ? 'ok' : 'warn'}">${state.mailResult.text}</div>` : ''}
@@ -697,9 +668,8 @@
             <div class="card"><h2>Company details (on every RCTI)</h2><div class="grid g2 stack">
               ${f('company_name', 'Company name', 'required')}${f('company_abn', 'ABN')}${f('company_phone', 'Phone')}${f('company_email', 'Email (sender)', 'type="email"')}
             </div>${f('company_address', 'Address')}</div>
-            <div class="card"><h2>Office copies</h2>${f('office_email', 'Office email for runsheets and RCTI copies', 'type="email"', 'Every submitted runsheet and every weekly RCTI batch is sent here.')}
-              <label class="check"><input type="checkbox" name="auto_email_runsheets" ${s.auto_email_runsheets === '1' ? 'checked' : ''}> Email each runsheet to the office when a driver submits</label>
-              <label class="check" style="margin-top:8px"><input type="checkbox" name="auto_weekly_rcti" ${s.auto_weekly_rcti === '1' ? 'checked' : ''}> Create RCTIs automatically every Sunday 1am (${s.timezone}) and email office copies</label></div>
+            <div class="card"><h2>Office copies</h2>${f('office_email', 'Office email for runsheets and RCTI copies', 'type="email"', 'Office copies of RCTIs are sent here.')}
+              <label class="check"><input type="checkbox" name="auto_weekly_rcti" ${s.auto_weekly_rcti === '1' ? 'checked' : ''}> Create RCTIs automatically every Sunday 1am (${s.timezone}) and email office copies</label></div>
             <div class="card"><h2>RCTI</h2><div class="grid g2 stack">${f('rcti_prefix', 'Number prefix')}${f('rcti_next_number', 'Next number', 'type="number" min="1"')}</div>
               <div class="field"><label>Payment terms</label><textarea name="payment_terms">${s.payment_terms}</textarea></div>
               <div class="field"><label>RCTI agreement wording</label><textarea name="rcti_agreement" style="min-height:120px">${s.rcti_agreement}</textarea><div class="hint">Printed on every RCTI. Have your accountant check it matches your written RCTI agreements with drivers.</div></div></div>
@@ -714,7 +684,6 @@
           $('#sForm', v).addEventListener('submit', async (e) => {
             e.preventDefault();
             const body = Object.fromEntries(new FormData(e.target));
-            body.auto_email_runsheets = e.target.auto_email_runsheets.checked ? '1' : '0';
             body.auto_weekly_rcti = e.target.auto_weekly_rcti.checked ? '1' : '0';
             try { await api('/api/settings', { method: 'PUT', body }); toast('Settings saved'); } catch (err) { fail(err); }
           });
@@ -795,17 +764,43 @@
     });
   }
 
-  function officeEntryDialog(ds) {
-    dialog('Enter runsheet for a driver', html`<form id="oe">
-      <div class="field"><label>Driver</label><select name="driver_id" required>${ds.filter((d) => d.active).map((d) => html`<option value="${d.id}">${d.name}</option>`)}</select></div>
-      <div class="grid g3"><div class="field"><label>Date</label><input type="date" name="work_date" value="${today()}" required></div><div class="field"><label>Start</label><input type="time" name="start_time" required></div><div class="field"><label>Finish</label><input type="time" name="finish_time" required></div></div>
-      <div class="field"><label>Notes</label><input name="notes"></div>
-      <div class="actions" style="justify-content:flex-end"><button type="button" class="btn ghost" data-no>Cancel</button><button class="btn">Add runsheet</button></div></form>`, (d) => {
+  async function markUnpaid(id) {
+    if (!(await confirmDialog('Mark RCTI unpaid?', html`<p>The payment date and reference are cleared, it comes off the Payments list, and the driver sees it as unpaid again.</p>`, 'Mark unpaid'))) return;
+    try { await api(`/api/rctis/${id}/paid`, { method: 'POST', body: { paid: false } }); toast('Marked unpaid'); render(); } catch (err) { fail(err); }
+  }
+
+  // WhatsApp without a paid API: on a phone, share the PDF file straight into WhatsApp;
+  // anywhere, open a WhatsApp chat with the driver holding a message and a private link to the PDF.
+  async function waDialog(id) {
+    let info;
+    try { info = await api(`/api/rctis/${id}/share`); } catch (err) { return fail(err); }
+    let file = null;
+    if (matchMedia('(pointer: coarse)').matches && navigator.canShare && window.File) {
+      try {
+        const blob = await (await fetch(info.link)).blob();
+        const f = new File([blob], info.number + '.pdf', { type: 'application/pdf' });
+        if (navigator.canShare({ files: [f] })) file = f;
+      } catch { /* fall back to the link */ }
+    }
+    const msg = `${info.text}\n\nRCTI PDF: ${info.link}`;
+    const waUrl = `https://wa.me/${info.phone}?text=${encodeURIComponent(msg)}`;
+    const sent = () => api(`/api/rctis/${id}/push`, { method: 'POST', body: {} }).then(() => render()).catch(fail);
+    dialog(`Send ${info.number} on WhatsApp`, html`
+      ${info.phone ? html`<p>To <b>+${info.phone}</b> (the driver's mobile).</p>` : html`<div class="notice warn">No mobile saved for this driver, so WhatsApp will ask you to pick the chat. Add it on the driver's page.</div>`}
+      <div class="actions" style="flex-direction:column;align-items:stretch">
+        ${file ? html`<button class="btn wa xl" data-file>Send PDF in WhatsApp</button><p class="hint" style="margin:-4px 0 6px">Your phone's share menu opens. Pick WhatsApp, then the driver.</p>` : ''}
+        <a class="btn ${file ? 'ghost' : 'wa xl'}" data-link href="${waUrl}" target="_blank" rel="noopener">${file ? 'Send a link instead' : 'Open WhatsApp chat'}</a>
+        <p class="hint" style="margin:0">${file ? 'The link opens the same PDF without logging in.' : 'The message has a private link that opens the RCTI PDF without logging in.'}</p>
+      </div>
+      <p class="small muted">Sending also shows the RCTI in the driver's app.</p>
+      <div class="actions" style="justify-content:flex-end"><button class="btn ghost" data-no>Close</button></div>`, (d) => {
       $('[data-no]', d).onclick = () => d.close();
-      $('#oe', d).addEventListener('submit', async (e) => {
-        e.preventDefault();
-        try { const r = await api('/api/runsheets', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); d.close(); toast('Runsheet added'); location.hash = '#/runsheet/' + r.id; } catch (err) { fail(err); }
-      });
+      $('[data-link]', d).onclick = () => { sent(); d.close(); };
+      const fb = $('[data-file]', d);
+      if (fb) fb.onclick = async () => {
+        try { await navigator.share({ files: [file], text: info.text }); sent(); d.close(); }
+        catch (e) { if (e.name !== 'AbortError') fail(e); }
+      };
     });
   }
 

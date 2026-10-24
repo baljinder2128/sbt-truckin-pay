@@ -30,6 +30,7 @@ if (!db.prepare("SELECT 1 FROM users WHERE role = 'office'").get()) {
 }
 
 const app = express();
+app.set('trust proxy', true); // Railway sits in front, so links the app builds use https
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 let lastWeeklyCheck = 0;
@@ -162,7 +163,7 @@ app.get('/api/logo', (req, res) => {
 });
 
 // ---------- runsheets ----------
-app.post('/api/uploads', auth(), upload.single('photo'), wrap(async (req, res) => {
+app.post('/api/uploads', auth('office'), upload.single('photo'), wrap(async (req, res) => {
   if (!req.file) throw bad('Attach a photo of the runsheet');
   const id = crypto.randomUUID();
   const rel = path.join('uploads', req.file.filename);
@@ -181,33 +182,73 @@ app.post('/api/uploads', auth(), upload.single('photo'), wrap(async (req, res) =
   res.json({ id, extracted, extraction_enabled: extractionEnabled, extraction_error });
 }));
 
-app.post('/api/runsheets', auth(), wrap(async (req, res) => {
-  const b = req.body || {};
-  const driverId = isOffice(req) && b.driver_id ? Number(b.driver_id) : req.user.id;
-  const driver = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'driver'").get(driverId);
-  if (!driver) throw bad('Runsheets are submitted by drivers');
+// Only the office enters times. Drivers see them once the RCTI they're on has been sent to them.
+function insertRunsheet(driver, b, uploadPath = null, extracted = null) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(b.work_date || '')) throw bad('Pick the date of the shift');
+  const calc = calcShift({ start_time: b.start_time, finish_time: b.finish_time, breaks: b.breaks, rate: driver.hourly_rate });
+  const r = db.prepare(`INSERT INTO runsheets (driver_id, work_date, start_time, finish_time, breaks_json, break_minutes, hours, rate, amount, truck_rego, notes, photo_path, extracted_json, status)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'approved')`).run(driver.id, b.work_date, calc.start_time, calc.finish_time, JSON.stringify(calc.breaks), calc.break_minutes, calc.hours, calc.rate, calc.amount,
+    b.truck_rego || null, b.notes || null, uploadPath, extracted);
+  return Number(r.lastInsertRowid);
+}
+function officeDriver(id) {
+  const d = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'driver'").get(Number(id));
+  if (!d) throw bad('Pick a driver');
+  return d;
+}
+
+app.post('/api/runsheets', auth('office'), (req, res) => {
+  const b = req.body || {};
+  const driver = officeDriver(b.driver_id);
   let up = null;
   if (b.upload_id) {
     up = db.prepare('SELECT * FROM uploads WHERE id = ?').get(b.upload_id);
-    if (!up || (up.user_id !== req.user.id && !isOffice(req))) throw bad('Photo not found, please retake it');
-  } else if (!isOffice(req)) throw bad('Add a photo of your runsheet');
-  const calc = calcShift({ start_time: b.start_time, finish_time: b.finish_time, breaks: b.breaks, rate: driver.hourly_rate });
-  const r = db.prepare(`INSERT INTO runsheets (driver_id, work_date, start_time, finish_time, breaks_json, break_minutes, hours, rate, amount, truck_rego, notes, photo_path, extracted_json)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(driverId, b.work_date, calc.start_time, calc.finish_time, JSON.stringify(calc.breaks), calc.break_minutes, calc.hours, calc.rate, calc.amount,
-    b.truck_rego || null, b.notes || null, up ? up.file_path : null, up ? up.extracted_json : null);
-  const id = Number(r.lastInsertRowid);
-  const s = getSettings();
-  let emailed = null;
-  if (s.auto_email_runsheets === '1') emailed = await emailRunsheetToOffice(id);
-  res.json({ ...rowRunsheet(db.prepare('SELECT * FROM runsheets WHERE id = ?').get(id)), emailed });
-}));
+    if (!up) throw bad('Photo not found, please add it again');
+  }
+  const id = insertRunsheet(driver, b, up ? up.file_path : null, up ? up.extracted_json : null);
+  res.json(rowRunsheet(db.prepare('SELECT * FROM runsheets WHERE id = ?').get(id)));
+});
+
+// Office enters a driver's whole week (Sunday to Saturday) in one go. Rows with an id update that day,
+// rows without one are added, and rows with no times are left alone. An RCTI already made for the week is re-totalled.
+app.post('/api/runsheets/week', auth('office'), (req, res) => {
+  const b = req.body || {};
+  const driver = officeDriver(b.driver_id);
+  const wk = weekRange(b.week || todayLocal());
+  const days = (Array.isArray(b.days) ? b.days : []).filter((x) => x && x.start_time && x.finish_time);
+  for (const x of days) {
+    if (x.work_date < wk.start || x.work_date > wk.end) throw bad('Every day must be inside the week');
+    calcShift({ start_time: x.start_time, finish_time: x.finish_time, breaks: x.breaks, rate: 0 }); // checks times before anything is saved
+  }
+  const touched = new Set();
+  let added = 0;
+  let changed = 0;
+  for (const x of days) {
+    if (x.id) {
+      const r = db.prepare('SELECT * FROM runsheets WHERE id = ? AND driver_id = ?').get(Number(x.id), driver.id);
+      if (!r) throw bad('Runsheet not found', 404);
+      const calc = calcShift({ start_time: x.start_time, finish_time: x.finish_time, breaks: x.breaks ?? JSON.parse(r.breaks_json), rate: r.rate });
+      if (calc.start_time === r.start_time && calc.finish_time === r.finish_time && JSON.stringify(calc.breaks) === r.breaks_json && (x.notes ?? r.notes ?? '') === (r.notes ?? '')) continue;
+      db.prepare("UPDATE runsheets SET start_time=?, finish_time=?, breaks_json=?, break_minutes=?, hours=?, amount=?, notes=?, updated_at=datetime('now') WHERE id=?")
+        .run(calc.start_time, calc.finish_time, JSON.stringify(calc.breaks), calc.break_minutes, calc.hours, calc.amount, x.notes ?? r.notes, r.id);
+      if (r.rcti_id) touched.add(r.rcti_id);
+      changed++;
+    } else {
+      insertRunsheet(driver, x);
+      added++;
+    }
+  }
+  const existing = db.prepare('SELECT id FROM rctis WHERE driver_id = ? AND period_start = ? ORDER BY id DESC LIMIT 1').get(driver.id, wk.start);
+  if (existing && added) touched.add(existing.id);
+  for (const id of touched) refreshRctiFor(id);
+  res.json({ ok: true, added, changed, rcti_id: existing ? existing.id : null });
+});
 
 app.get('/api/runsheets', auth(), (req, res) => {
   const q = req.query;
   const where = [];
   const args = [];
-  if (!isOffice(req)) { where.push('r.driver_id = ?'); args.push(req.user.id); }
+  if (!isOffice(req)) { where.push('r.driver_id = ? AND x.pushed_at IS NOT NULL'); args.push(req.user.id); }
   else if (q.driver_id) { where.push('r.driver_id = ?'); args.push(Number(q.driver_id)); }
   if (q.from) { where.push('r.work_date >= ?'); args.push(q.from); }
   if (q.to) { where.push('r.work_date <= ?'); args.push(q.to); }
@@ -219,8 +260,8 @@ app.get('/api/runsheets', auth(), (req, res) => {
 });
 
 function loadRunsheet(req) {
-  const r = db.prepare('SELECT r.*, u.name AS driver_name FROM runsheets r JOIN users u ON u.id = r.driver_id WHERE r.id = ?').get(Number(req.params.id));
-  if (!r || (!isOffice(req) && r.driver_id !== req.user.id)) throw bad('Runsheet not found', 404);
+  const r = db.prepare('SELECT r.*, u.name AS driver_name, x.pushed_at AS rcti_pushed_at FROM runsheets r JOIN users u ON u.id = r.driver_id LEFT JOIN rctis x ON x.id = r.rcti_id WHERE r.id = ?').get(Number(req.params.id));
+  if (!r || (!isOffice(req) && (r.driver_id !== req.user.id || !r.rcti_pushed_at))) throw bad('Runsheet not found', 404);
   return r;
 }
 app.get('/api/runsheets/:id', auth(), (req, res) => res.json(rowRunsheet(loadRunsheet(req))));
@@ -272,7 +313,8 @@ app.post('/api/runsheets/:id/email-office', auth('office'), wrap(async (req, res
 // ---------- pay summary ----------
 function driverWeeks(driverId, officeView) {
   const d = db.prepare('SELECT * FROM users WHERE id = ?').get(driverId);
-  const sheets = db.prepare("SELECT r.*, x.paid_at, x.pushed_at, x.number, x.total AS rcti_total, x.gst AS rcti_gst FROM runsheets r LEFT JOIN rctis x ON x.id = r.rcti_id WHERE r.driver_id = ? AND r.status != 'rejected' ORDER BY r.work_date DESC").all(driverId);
+  const sheets = db.prepare("SELECT r.*, x.paid_at, x.pushed_at, x.number, x.total AS rcti_total, x.gst AS rcti_gst FROM runsheets r LEFT JOIN rctis x ON x.id = r.rcti_id WHERE r.driver_id = ? AND r.status != 'rejected' ORDER BY r.work_date DESC").all(driverId)
+    .filter((s) => officeView || s.pushed_at); // drivers only see what's on an RCTI the office has sent them
   const weeks = new Map();
   const thisWeek = weekRange(todayLocal()).start;
   for (const s of sheets) {
@@ -328,6 +370,7 @@ app.get('/api/office/dashboard', auth('office'), (req, res) => {
     to_review: db.prepare("SELECT COUNT(*) n FROM runsheets WHERE status = 'submitted'").get().n,
     unpaid_rctis: db.prepare('SELECT COUNT(*) n, COALESCE(SUM(total),0) total FROM rctis WHERE paid_at IS NULL').get(),
     not_pushed: db.prepare('SELECT COUNT(*) n FROM rctis WHERE pushed_at IS NULL').get().n,
+    paid_month: db.prepare('SELECT COUNT(*) n, COALESCE(SUM(total),0) total FROM rctis WHERE substr(paid_at,1,7) = ?').get(todayLocal().slice(0, 7)),
     uninvoiced_past: db.prepare("SELECT COUNT(*) n FROM runsheets WHERE rcti_id IS NULL AND status != 'rejected' AND work_date < ?").get(wk.start).n,
     drivers: db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'driver' AND active = 1").get().n,
     missing_details: db.prepare("SELECT id, name FROM users WHERE role='driver' AND active=1 AND (hourly_rate <= 0 OR abn IS NULL OR abn = '' OR bank_bsb IS NULL OR bank_bsb = '' OR bank_account_number IS NULL OR bank_account_number = '')").all(),
@@ -492,12 +535,78 @@ app.post('/api/rctis/:id/push', auth('office'), wrap(async (req, res) => {
   }
   res.json({ ok: true, emailed });
 }));
+// WhatsApp: a signed link opens the PDF without logging in, so it can go in a WhatsApp message.
+const shareSig = (r) => crypto.createHmac('sha256', secret).update(`rcti:${r.id}:${r.number}`).digest('base64url').slice(0, 24);
+function waPhone(p) {
+  let d = String(p || '').replace(/\D/g, '');
+  if (d.startsWith('0')) d = '61' + d.slice(1);
+  else if (d.length === 9 && d.startsWith('4')) d = '61' + d;
+  return d.length >= 10 ? d : '';
+}
+app.get('/api/rctis/:id/share', auth('office'), (req, res) => {
+  const r = loadRcti(req);
+  const d = db.prepare('SELECT phone FROM users WHERE id = ?').get(r.driver_id);
+  const link = `${req.protocol}://${req.get('host')}/r/${r.id}/${shareSig(r)}`;
+  const s = getSettings();
+  const text = `Hi ${r.driver_name.split(' ')[0]}, your RCTI ${r.number} for ${rcti.auDate(r.period_start)} – ${rcti.auDate(r.period_end)} from ${s.company_name}: ${r.total_hours.toFixed(2)} hours, total ${rcti.money(r.total)}.`;
+  res.json({ number: r.number, phone: waPhone(d && d.phone), link, text });
+});
+app.get('/r/:id/:sig', wrap(async (req, res) => {
+  const r = db.prepare('SELECT * FROM rctis WHERE id = ?').get(Number(req.params.id));
+  const sig = String(req.params.sig);
+  if (!r || sig.length !== 24 || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(shareSig(r)))) return res.status(404).send('This RCTI link is no longer valid. Ask the office for a new one.');
+  const file = await rcti.pdfReady(r.id);
+  res.setHeader('Content-Disposition', `inline; filename="${r.number}.pdf"`);
+  res.sendFile(file);
+}));
+
+// "Finish week": make the driver's RCTI for that week, or re-total the one already made.
+app.post('/api/rctis/finish-week', auth('office'), (req, res) => {
+  const driver = officeDriver(req.body.driver_id);
+  const wk = weekRange(req.body.week || todayLocal());
+  const ids = rcti.generateForPeriod(wk.start, wk.end, driver.id);
+  let id = ids[0];
+  if (!id) {
+    const x = db.prepare('SELECT id FROM rctis WHERE driver_id = ? AND period_start = ? ORDER BY id DESC LIMIT 1').get(driver.id, wk.start);
+    if (!x) throw bad('No times entered for this driver in that week');
+    refreshRctiFor(x.id);
+    id = x.id;
+  }
+  res.json({ ok: true, id, created: ids.length });
+});
+
 app.post('/api/rctis/:id/unpush', auth('office'), (req, res) => { loadRcti(req); db.prepare('UPDATE rctis SET pushed_at = NULL WHERE id = ?').run(Number(req.params.id)); res.json({ ok: true }); });
 app.post('/api/rctis/:id/paid', auth('office'), (req, res) => {
   const r = loadRcti(req);
   if (req.body.paid === false) db.prepare('UPDATE rctis SET paid_at = NULL, payment_ref = NULL WHERE id = ?').run(r.id);
   else db.prepare('UPDATE rctis SET paid_at = ?, payment_ref = ? WHERE id = ?').run(req.body.paid_on || todayLocal(), req.body.payment_ref || null, r.id);
   res.json({ ok: true });
+});
+
+// ---------- payments made, for BAS ----------
+// Paid RCTIs for an Australian financial year (fy=2026 is 1 Jul 2025 to 30 Jun 2026), by date paid.
+function payments(fyParam) {
+  const t = todayLocal();
+  const fy = Number(fyParam) || (Number(t.slice(5, 7)) >= 7 ? Number(t.slice(0, 4)) + 1 : Number(t.slice(0, 4)));
+  const rows = db.prepare(`SELECT x.id, x.number, x.period_start, x.period_end, x.total_hours, x.subtotal, x.gst, x.total, x.paid_at, x.payment_ref,
+      u.name AS driver_name, u.business_name, u.abn, u.gst_registered
+    FROM rctis x JOIN users u ON u.id = x.driver_id WHERE x.paid_at BETWEEN ? AND ? ORDER BY x.paid_at, u.name`).all(`${fy - 1}-07-01`, `${fy}-06-30`);
+  return { fy, from: `${fy - 1}-07-01`, to: `${fy}-06-30`, rows };
+}
+app.get('/api/payments', auth('office'), (req, res) => {
+  const p = payments(req.query.fy);
+  const years = db.prepare('SELECT DISTINCT substr(paid_at,1,7) m FROM rctis WHERE paid_at IS NOT NULL').all()
+    .map(({ m }) => (Number(m.slice(5)) >= 7 ? Number(m.slice(0, 4)) + 1 : Number(m.slice(0, 4))));
+  res.json({ ...p, years: [...new Set([...years, p.fy])].sort((a, b) => b - a), unpaid: db.prepare('SELECT COUNT(*) n, COALESCE(SUM(total),0) total FROM rctis WHERE paid_at IS NULL').get() });
+});
+app.get('/api/payments.csv', auth('office'), (req, res) => {
+  const p = payments(req.query.fy);
+  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [['Date paid', 'Month', 'Contractor', 'Business', 'ABN', 'GST registered', 'RCTI', 'Week from', 'Week to', 'Hours', 'Ex GST', 'GST', 'Total', 'Payment ref'].map(q).join(',')];
+  for (const r of p.rows) lines.push([r.paid_at, r.paid_at.slice(0, 7), r.driver_name, r.business_name, r.abn, r.gst_registered ? 'Yes' : 'No', r.number, r.period_start, r.period_end, r.total_hours.toFixed(2), r.subtotal.toFixed(2), r.gst.toFixed(2), r.total.toFixed(2), r.payment_ref].map(q).join(','));
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="contractor-payments-FY${p.fy}.csv"`);
+  res.send(lines.join('\r\n') + '\r\n');
 });
 
 app.get('/api/email-log', auth('office'), (req, res) => res.json(db.prepare('SELECT * FROM email_log ORDER BY id DESC LIMIT 200').all()));
