@@ -430,6 +430,22 @@ app.put('/api/drivers/:id', auth('office'), (req, res) => {
   res.json(db.prepare(`SELECT ${PUBLIC_USER} FROM users WHERE id = ?`).get(id));
 });
 
+// A driver who has left is normally just marked as left (active = 0): their RCTIs and payments stay for BAS.
+// Deleting for good is only allowed when they have no RCTIs, e.g. added by mistake.
+app.delete('/api/drivers/:id', auth('office'), (req, res) => {
+  const d = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'driver'").get(Number(req.params.id));
+  if (!d) throw bad('Driver not found', 404);
+  if (db.prepare('SELECT COUNT(*) n FROM rctis WHERE driver_id = ?').get(d.id).n) throw bad(`${d.name} has RCTIs, which are needed for your BAS and records. Mark them as left instead.`);
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM runsheets WHERE driver_id = ?').run(d.id);
+    db.prepare('DELETE FROM uploads WHERE user_id = ?').run(d.id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(d.id);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  res.json({ ok: true });
+});
+
 app.get('/api/staff', auth('office'), (req, res) => res.json(db.prepare("SELECT id, name, email, phone, active FROM users WHERE role = 'office' ORDER BY name").all()));
 app.post('/api/staff', auth('office'), (req, res) => {
   const { name, email, password } = req.body || {};

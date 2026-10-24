@@ -230,3 +230,21 @@ test('finish week, WhatsApp link and payments by month', async () => {
   await office('POST', `/api/rctis/${fin.body.id}/paid`, { paid: false });
   assert.ok(!(await office('GET', '/api/payments?fy=2027')).body.rows.some((r) => r.id === fin.body.id), 'unpaid comes off the payments list');
 });
+
+test('a driver who left is kept with their RCTIs; only drivers with no RCTIs can be deleted', async () => {
+  const office = client();
+  await office('POST', '/api/login', { email: 'boss@test.local', password: 'OfficePass1' });
+  const withRcti = db.prepare("SELECT id FROM users WHERE email = 'd@test.local'").get();
+  const refused = await office('DELETE', `/api/drivers/${withRcti.id}`);
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, /Mark them as left/);
+  assert.equal((await office('PUT', `/api/drivers/${withRcti.id}`, { active: false })).body.active, 0);
+  const gone = client();
+  assert.equal((await gone('POST', '/api/login', { email: 'd@test.local', password: 'Password1' })).status, 401, 'left driver cannot log in');
+
+  const oops = (await office('POST', '/api/drivers', { name: 'Typo Driver', email: 'typo@test.local', password: 'Password1', hourly_rate: 40 })).body;
+  await office('POST', '/api/runsheets/week', { driver_id: oops.id, week: '2026-08-02', days: [{ work_date: '2026-08-03', start_time: '06:00', finish_time: '10:00' }] });
+  assert.equal((await office('DELETE', `/api/drivers/${oops.id}`)).status, 200);
+  assert.ok(!db.prepare('SELECT 1 FROM users WHERE id = ?').get(oops.id));
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM runsheets WHERE driver_id = ?').get(oops.id).n, 0);
+});

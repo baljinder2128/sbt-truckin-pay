@@ -588,11 +588,13 @@
 
     async drivers() {
       state.cache.drivers = null;
+      const driverTable = (list, empty) => html`<div class="card flush"><div class="tablewrap"><table><thead><tr><th>Name</th><th>Business / ABN</th><th class="num">Rate</th><th>GST</th><th>Bank</th><th>Login</th><th></th></tr></thead>
+          <tbody>${list.length ? list.map((d) => html`<tr class="click" data-go="#/driver/${d.id}"><td><b>${d.name}</b><div class="small muted">${d.phone || ''}</div></td><td>${d.business_name || '—'}<div class="small muted">${d.abn || 'No ABN'}</div></td><td class="num">${d.hourly_rate ? money(d.hourly_rate) : html`<span class="pill rejected">Set rate</span>`}</td><td>${d.gst_registered ? 'Yes' : 'No'}</td><td class="small">${d.bank_bsb ? `${d.bank_bsb} · ${d.bank_account_number}` : html`<span class="pill rejected">Missing</span>`}</td><td class="small">${d.email}</td><td>${d.active ? '' : html`<span class="pill">Left</span>`}</td></tr>`) : html`<tr><td colspan="7" class="empty">${empty}</td></tr>`}</tbody></table></div></div>`;
       const ds = await drivers();
       return {
         html: html`<div class="toolbar"><h1 style="margin:0">Drivers</h1><a class="btn" href="#/driver/new">+ Add driver</a></div>
-          <div class="card flush"><div class="tablewrap"><table><thead><tr><th>Name</th><th>Business / ABN</th><th class="num">Rate</th><th>GST</th><th>Bank</th><th>Login</th><th></th></tr></thead>
-          <tbody>${ds.length ? ds.map((d) => html`<tr class="click" data-go="#/driver/${d.id}"><td><b>${d.name}</b><div class="small muted">${d.phone || ''}</div></td><td>${d.business_name || '—'}<div class="small muted">${d.abn || 'No ABN'}</div></td><td class="num">${d.hourly_rate ? money(d.hourly_rate) : html`<span class="pill rejected">Set rate</span>`}</td><td>${d.gst_registered ? 'Yes' : 'No'}</td><td class="small">${d.bank_bsb ? `${d.bank_bsb} · ${d.bank_account_number}` : html`<span class="pill rejected">Missing</span>`}</td><td class="small">${d.email}</td><td>${d.active ? '' : html`<span class="pill">Inactive</span>`}</td></tr>`) : html`<tr><td colspan="7" class="empty">No drivers yet. Add your first driver to get started.</td></tr>`}</tbody></table></div></div>`,
+          ${driverTable(ds.filter((d) => d.active), 'No drivers yet. Add your first driver to get started.')}
+          ${ds.some((d) => !d.active) ? html`<details class="card" style="padding:0"><summary style="padding:16px;cursor:pointer"><b>Former drivers (${ds.filter((d) => !d.active).length})</b> <span class="small muted">· left, kept for records</span></summary>${driverTable(ds.filter((d) => !d.active), '')}</details>` : ''}`,
         bind: bindRows,
       };
     },
@@ -625,8 +627,23 @@
               ${f('bank_account_name', 'Account name')}${f('bank_bsb', 'BSB', 'inputmode="numeric" placeholder="000-000"')}${f('bank_account_number', 'Account number', 'inputmode="numeric"')}
             </div></div>
             <div class="actions"><button class="btn xl">${isNew ? 'Add driver' : 'Save driver'}</button></div>
-          </form>`,
+          </form>
+          ${isNew ? '' : html`<div class="card" style="margin-top:16px"><h2>Driver has left</h2>
+            ${d.active ? html`<p class="muted">Marking them as left stops their login and takes them off Enter times. Their RCTIs and payments are kept for your BAS, and you can bring them back any time.</p>
+              <div class="actions"><button class="btn danger" id="leave">Mark as left</button></div>`
+            : html`<p class="muted">${d.name} has left and can't log in. Their RCTIs and payments are kept.</p>
+              <div class="actions"><button class="btn" id="back">Bring back</button><button class="btn ghost danger" id="delDrv">Delete for good</button></div>
+              <p class="hint">Delete for good only works if they have no RCTIs, for example a driver added by mistake.</p>`}</div>`}`,
         bind(v) {
+          const setActive = async (on) => {
+            try { await api('/api/drivers/' + id, { method: 'PUT', body: { active: on } }); state.cache.drivers = null; toast(on ? `${d.name} is back` : `${d.name} marked as left`); render(); } catch (err) { fail(err); }
+          };
+          $('#leave', v) && ($('#leave', v).onclick = async () => { if (await confirmDialog(`Mark ${d.name} as left?`, html`<p>They can't log in any more and won't show on Enter times. Their RCTIs and payments stay.</p>`, 'Mark as left', true)) setActive(false); });
+          $('#back', v) && ($('#back', v).onclick = () => setActive(true));
+          $('#delDrv', v) && ($('#delDrv', v).onclick = async () => {
+            if (!(await confirmDialog(`Delete ${d.name} for good?`, html`<p>Their details and any times not on an RCTI are removed permanently. This can't be undone.</p>`, 'Delete', true))) return;
+            try { await api('/api/drivers/' + id, { method: 'DELETE' }); state.cache.drivers = null; toast('Driver deleted'); location.hash = '#/drivers'; } catch (err) { fail(err); }
+          });
           $('#dForm', v).addEventListener('submit', async (e) => {
             e.preventDefault();
             const fd = new FormData(e.target);
