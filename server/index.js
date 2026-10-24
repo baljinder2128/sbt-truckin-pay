@@ -666,6 +666,7 @@ if (require.main === module) {
   for (const port of new Set([PORT, 3000, 8080])) {
     app.listen(port, '0.0.0.0', () => console.log(`SB Truckin pay app listening on port ${port}`)).on('error', (e) => console.error(`port ${port}: ${e.message}`));
   }
+  rcti.refreshLayout();
   if (!STORAGE_SAFE) console.warn('WARNING: no Railway volume attached. Runsheets, drivers and RCTIs will be wiped on the next deploy.');
   console.log(`TZ ${TZ}, email ${smtpConfigured() ? 'SMTP' : 'outbox only'}, photo reading ${extractionEnabled ? 'on' : 'off'}, data in ${DATA_DIR}`);
 }

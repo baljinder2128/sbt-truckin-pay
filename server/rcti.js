@@ -103,8 +103,9 @@ function renderPdf(rctiId) {
   doc.rect(0, 92, W, 6).fill(AMBER);
   const uploaded = s.logo_path ? path.join(DATA_DIR, s.logo_path) : '';
   const logo = uploaded && fs.existsSync(uploaded) ? uploaded : BUILTIN_LOGO;
-  try { doc.image(logo, L, 14, { fit: [100, 62] }); } catch { /* unsupported image type */ }
-  doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(20).text('TRUCKIN', L + 108, 34, { characterSpacing: 1 });
+  try { doc.image(logo, L, 10, { fit: [120, 48] }); } catch { /* unsupported image type */ }
+  // Full company name under the logo
+  doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(12).text((s.company_name || 'SB Truckin Pty Ltd').toUpperCase(), L, 66, { characterSpacing: 1, lineBreak: false });
   doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(13).text('RECIPIENT CREATED TAX INVOICE', L, 26, { width: R - L, align: 'right' });
   doc.font('Helvetica').fontSize(10).fillColor('#D5DAE0')
     .text(`${r.number}`, L, 46, { width: R - L, align: 'right' })
@@ -213,4 +214,12 @@ function pdfReady(rctiId, timeoutMs = 5000) {
   });
 }
 
-module.exports = { generateForPeriod, rebuild, voidRcti, renderPdf, pdfReady, money, auDate };
+// Bump when the PDF design changes so RCTIs already made are redrawn once, keeping their numbers and amounts.
+const PDF_LAYOUT = '2';
+function refreshLayout() {
+  if (getSettings().pdf_layout === PDF_LAYOUT) return;
+  for (const { id } of db.prepare('SELECT id FROM rctis').all()) { try { renderPdf(id); } catch (e) { console.error('redraw RCTI', id, e.message); } }
+  setSetting('pdf_layout', PDF_LAYOUT);
+}
+
+module.exports = { refreshLayout, generateForPeriod, rebuild, voidRcti, renderPdf, pdfReady, money, auDate };
