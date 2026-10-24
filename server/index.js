@@ -209,7 +209,7 @@ app.post('/api/runsheets', auth('office'), (req, res) => {
   res.json(rowRunsheet(db.prepare('SELECT * FROM runsheets WHERE id = ?').get(id)));
 });
 
-// Office enters a driver's whole week (Sunday to Saturday) in one go. Rows with an id update that day,
+// Office enters a driver's whole week (Monday to Saturday) in one go. Rows with an id update that day,
 // rows without one are added, and rows with no times are left alone. An RCTI already made for the week is re-totalled.
 app.post('/api/runsheets/week', auth('office'), (req, res) => {
   const b = req.body || {};
@@ -238,7 +238,7 @@ app.post('/api/runsheets/week', auth('office'), (req, res) => {
       added++;
     }
   }
-  const existing = db.prepare('SELECT id FROM rctis WHERE driver_id = ? AND period_start = ? ORDER BY id DESC LIMIT 1').get(driver.id, wk.start);
+  const existing = db.prepare('SELECT id FROM rctis WHERE driver_id = ? AND period_start BETWEEN ? AND ? ORDER BY id DESC LIMIT 1').get(driver.id, addDays(wk.start, -1), wk.start);
   if (existing && added) touched.add(existing.id);
   for (const id of touched) refreshRctiFor(id);
   res.json({ ok: true, added, changed, rcti_id: existing ? existing.id : null });
@@ -361,7 +361,7 @@ app.get('/api/pay/summary', auth(), (req, res) => {
 
 app.get('/api/office/dashboard', auth('office'), (req, res) => {
   const wk = weekRange(req.query.date || todayLocal());
-  const last = weekRange(addDays(wk.start, -1));
+  const last = weekRange(addDays(wk.start, -7));
   const sum = (from, to) => db.prepare("SELECT COUNT(*) n, COALESCE(SUM(hours),0) hours, COALESCE(SUM(amount),0) amount FROM runsheets WHERE work_date BETWEEN ? AND ? AND status != 'rejected'").get(from, to);
   res.json({
     week: wk,
@@ -505,7 +505,7 @@ app.get('/api/rctis', auth(), (req, res) => {
   const args = [];
   if (!isOffice(req)) { where.push('x.driver_id = ? AND x.pushed_at IS NOT NULL'); args.push(req.user.id); }
   else if (req.query.driver_id) { where.push('x.driver_id = ?'); args.push(Number(req.query.driver_id)); }
-  if (req.query.week) { where.push('x.period_start = ?'); args.push(weekRange(req.query.week).start); }
+  if (req.query.week) { const w = weekRange(req.query.week); where.push('x.period_start BETWEEN ? AND ?'); args.push(addDays(w.start, -1), w.start); } // weeks before Oct 2026 started on Sunday
   res.json(db.prepare(`${RCTI_SELECT} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY x.period_start DESC, u.name`).all(...args));
 });
 
@@ -583,7 +583,7 @@ app.post('/api/rctis/finish-week', auth('office'), (req, res) => {
   const ids = rcti.generateForPeriod(wk.start, wk.end, driver.id);
   let id = ids[0];
   if (!id) {
-    const x = db.prepare('SELECT id FROM rctis WHERE driver_id = ? AND period_start = ? ORDER BY id DESC LIMIT 1').get(driver.id, wk.start);
+    const x = db.prepare('SELECT id FROM rctis WHERE driver_id = ? AND period_start BETWEEN ? AND ? ORDER BY id DESC LIMIT 1').get(driver.id, addDays(wk.start, -1), wk.start);
     if (!x) throw bad('No times entered for this driver in that week');
     refreshRctiFor(x.id);
     id = x.id;

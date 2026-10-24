@@ -23,7 +23,7 @@ It runs as a website on any computer, and on Android it installs to the home scr
 
 **Automatic**
 - Each submitted runsheet is emailed to the office email with the photo attached.
-- Every Sunday at 1am (Melbourne time) RCTIs are created for the week just finished (Sunday to Saturday) and the office copies are emailed together.
+- Every Sunday at 1am (Melbourne time) RCTIs are created for the week just finished (Monday to Saturday) and the office copies are emailed together.
 
 ## Run it
 
@@ -94,7 +94,7 @@ To put it in the **Google Play Store**, wrap the hosted site as a Trusted Web Ac
 - Paid hours = finish minus start. A finish earlier than start is treated as running past midnight.
 - Breaks are stored and shown on the runsheet, emails and RCTI, but never deducted.
 - Hours are rounded to 2 decimals, amounts to cents.
-- Pay week is Sunday to Saturday.
+- Pay week is Monday to Saturday (it was Sunday to Saturday before 24 Oct 2026).
 - GST at 10% is added on the RCTI only if the driver is marked GST registered.
 - Pending = everything not marked paid (uninvoiced runsheets include estimated GST). Cleared = RCTIs marked paid.
 

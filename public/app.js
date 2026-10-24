@@ -26,7 +26,7 @@
   const short = (s) => (s ? pd(s).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '');
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const addDays = (s, n) => { const d = pd(s); d.setDate(d.getDate() + n); return iso(d); };
-  const weekStart = (s) => { const d = pd(s); d.setDate(d.getDate() - d.getDay()); return iso(d); };
+  const weekStart = (s) => { const d = pd(s); d.setDate(d.getDate() + 1 - d.getDay()); return iso(d); }; // Monday; a Sunday belongs to the week after
   const today = () => iso(new Date());
   const stamp = (s) => (s ? new Date(s.replace(' ', 'T') + 'Z').toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' }) : '');
   const toMin = (t) => { const m = /^(\d{1,2}):(\d{2})$/.exec(t || ''); return m ? +m[1] * 60 + +m[2] : null; };
@@ -193,7 +193,7 @@
       const rctis = await api('/api/rctis');
       return html`<h1>My RCTIs</h1>
         <div class="card flush">${rctiList(rctis)}</div>
-        <p class="small muted">Weeks run Sunday to Saturday. Your rate includes GST if you're registered. Something wrong? Call the office.</p>`;
+        <p class="small muted">Weeks run Monday to Saturday. Your rate includes GST if you're registered. Something wrong? Call the office.</p>`;
     },
 
     async rcti(id) {
@@ -292,7 +292,7 @@
       const wk = q.get('week') || '';
       const params = new URLSearchParams();
       for (const k of ['driver_id', 'status']) if (q.get(k)) params.set(k, q.get(k));
-      if (wk) { params.set('from', wk); params.set('to', addDays(wk, 6)); }
+      if (wk) { params.set('from', wk); params.set('to', addDays(wk, 5)); }
       const rows = await api('/api/runsheets?' + params);
       const tot = rows.filter((r) => r.status !== 'rejected').reduce((a, r) => ({ h: a.h + r.hours, m: a.m + r.amount }), { h: 0, m: 0 });
       return {
@@ -382,7 +382,7 @@
 
     async rctis() {
       const wk = weekStart(query().get('week') || addDays(weekStart(today()), -7));
-      const [list, sheets, ds] = await Promise.all([api('/api/rctis?week=' + wk), api(`/api/runsheets?from=${wk}&to=${addDays(wk, 6)}&limit=1000`), drivers()]);
+      const [list, sheets, ds] = await Promise.all([api('/api/rctis?week=' + wk), api(`/api/runsheets?from=${wk}&to=${addDays(wk, 5)}&limit=1000`), drivers()]);
       const byDriver = new Map();
       for (const s of sheets) {
         if (s.status === 'rejected') continue;
@@ -393,7 +393,7 @@
       const openDrivers = [...byDriver.entries()].filter(([, x]) => x.open);
       return {
         html: html`<div class="toolbar"><h1 style="margin:0">Pay &amp; RCTIs</h1>
-            <div class="weeknav"><a class="btn ghost sm" href="#/rctis?week=${addDays(wk, -7)}">◀</a><b>${short(wk)} – ${short(addDays(wk, 6))}</b><a class="btn ghost sm" href="#/rctis?week=${addDays(wk, 7)}">▶</a></div></div>
+            <div class="weeknav"><a class="btn ghost sm" href="#/rctis?week=${addDays(wk, -7)}">◀</a><b>${short(wk)} – ${short(addDays(wk, 5))}</b><a class="btn ghost sm" href="#/rctis?week=${addDays(wk, 7)}">▶</a></div></div>
           ${openDrivers.length ? html`<div class="card"><h2>Ready to invoice</h2>
             <p class="muted" style="margin-top:-6px">${openDrivers.map(([, x], i) => html`${i ? ', ' : ''}${x.name} (${x.open})`)} have runsheets this week not yet on an RCTI.${wk >= weekStart(today()) ? ' This week is still running.' : ''}</p>
             <div class="actions"><button class="btn" id="gen">Create RCTIs for this week</button><label class="check small"><input type="checkbox" id="genMail" checked> Email office copies</label></div></div>` : ''}
@@ -468,15 +468,15 @@
       };
     },
 
-    // Office types a driver's week straight off the runsheets: one row per day, Sunday to Saturday.
+    // Office types a driver's week straight off the runsheets: one row per day, Monday to Saturday.
     async entry() {
       const q = query();
       const ds = (await drivers()).filter((x) => x.active);
       const wk = weekStart(q.get('week') || today());
       const d = ds.find((x) => String(x.id) === q.get('driver_id'));
-      const [sheets, rctis] = d ? await Promise.all([api(`/api/runsheets?driver_id=${d.id}&from=${wk}&to=${addDays(wk, 6)}&limit=100`), api(`/api/rctis?driver_id=${d.id}&week=${wk}`)]) : [[], []];
+      const [sheets, rctis] = d ? await Promise.all([api(`/api/runsheets?driver_id=${d.id}&from=${wk}&to=${addDays(wk, 5)}&limit=100`), api(`/api/rctis?driver_id=${d.id}&week=${wk}`)]) : [[], []];
       const rows = [];
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 6; i++) {
         const day = addDays(wk, i);
         const got = sheets.filter((s) => s.work_date === day && s.status !== 'rejected').sort((a, b) => a.start_time.localeCompare(b.start_time));
         if (got.length) rows.push(...got); else rows.push({ work_date: day });
@@ -494,7 +494,7 @@
       };
       return {
         html: html`<div class="toolbar"><h1 style="margin:0">Enter times</h1>
-            <div class="weeknav"><a class="btn ghost sm" href="${link(addDays(wk, -7))}">◀</a><b>${short(wk)} – ${short(addDays(wk, 6))}</b><a class="btn ghost sm" href="${link(addDays(wk, 7))}">▶</a></div></div>
+            <div class="weeknav"><a class="btn ghost sm" href="${link(addDays(wk, -7))}">◀</a><b>${short(wk)} – ${short(addDays(wk, 5))}</b><a class="btn ghost sm" href="${link(addDays(wk, 7))}">▶</a></div></div>
           <div class="card"><div class="field" style="margin:0"><label>Driver</label><select id="drv"><option value="">Pick a driver…</option>${ds.map((x) => html`<option value="${x.id}" ${d && x.id === d.id ? 'selected' : ''}>${x.name}</option>`)}</select></div>
             ${d && !d.hourly_rate ? html`<div class="notice warn" style="margin:12px 0 0">${d.name} has no hourly rate yet. <a href="#/driver/${d.id}">Set it on their page</a> first.</div>` : ''}</div>
           ${d ? html`
