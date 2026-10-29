@@ -250,6 +250,75 @@
     }
   }
 
+  // Turn and crop a photo before it's saved. Drag on the picture to draw the crop box.
+  // Resolves to a JPEG blob, or null if cancelled.
+  async function editPhoto(file, title = 'Photo') {
+    let bmp;
+    try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { return shrink(file); }
+    return new Promise((resolve) => {
+      let rot = 0; // quarter turns clockwise
+      let crop = null; // {x, y, w, h} as fractions of the turned picture
+      let done = false;
+      dialog(`${title}: crop & rotate`, html`
+        <div class="photoedit"><canvas></canvas></div>
+        <p class="hint" style="margin:8px 0 12px">Drag across the picture to crop it. Use the buttons to turn it.</p>
+        <div class="actions"><button type="button" class="btn sm ghost" data-l>⟲ Turn left</button><button type="button" class="btn sm ghost" data-r>⟳ Turn right</button><button type="button" class="btn sm ghost" data-reset>Undo crop</button></div>
+        <div class="actions" style="justify-content:flex-end;margin-top:14px"><button type="button" class="btn ghost" data-no>Cancel</button><button type="button" class="btn" data-yes>Use photo</button></div>`, (dlg) => {
+        const cv = $('canvas', dlg);
+        const ctx = cv.getContext('2d');
+        const dims = () => (rot % 2 ? [bmp.height, bmp.width] : [bmp.width, bmp.height]);
+        const drawTurned = (c, w, h) => {
+          c.save(); c.translate(w / 2, h / 2); c.rotate(rot * Math.PI / 2);
+          const [bw, bh] = rot % 2 ? [h, w] : [w, h];
+          c.drawImage(bmp, -bw / 2, -bh / 2, bw, bh); c.restore();
+        };
+        const paint = () => {
+          const [w, h] = dims();
+          const boxW = $('.photoedit', dlg).clientWidth || 480;
+          const scale = Math.min(boxW / w, 420 / h);
+          cv.width = Math.round(w * scale); cv.height = Math.round(h * scale);
+          drawTurned(ctx, cv.width, cv.height);
+          if (crop) {
+            const [x, y, cw, ch] = [crop.x * cv.width, crop.y * cv.height, crop.w * cv.width, crop.h * cv.height];
+            ctx.fillStyle = 'rgba(0,0,0,.55)';
+            ctx.fillRect(0, 0, cv.width, y); ctx.fillRect(0, y + ch, cv.width, cv.height - y - ch);
+            ctx.fillRect(0, y, x, ch); ctx.fillRect(x + cw, y, cv.width - x - cw, ch);
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.strokeRect(x + 1, y + 1, cw - 2, ch - 2); ctx.setLineDash([]);
+          }
+        };
+        const pt = (e) => { const r = cv.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
+        let start = null;
+        cv.addEventListener('pointerdown', (e) => { start = pt(e); cv.setPointerCapture(e.pointerId); });
+        cv.addEventListener('pointermove', (e) => {
+          if (!start) return;
+          const [x, y] = pt(e);
+          crop = { x: Math.min(x, start[0]), y: Math.min(y, start[1]), w: Math.abs(x - start[0]), h: Math.abs(y - start[1]) };
+          paint();
+        });
+        cv.addEventListener('pointerup', () => { start = null; if (crop && (crop.w < 0.05 || crop.h < 0.05)) { crop = null; paint(); } });
+        $('[data-l]', dlg).onclick = () => { rot = (rot + 3) % 4; crop = null; paint(); };
+        $('[data-r]', dlg).onclick = () => { rot = (rot + 1) % 4; crop = null; paint(); };
+        $('[data-reset]', dlg).onclick = () => { crop = null; paint(); };
+        $('[data-no]', dlg).onclick = () => dlg.close();
+        $('[data-yes]', dlg).onclick = () => {
+          const [w, h] = dims();
+          const full = document.createElement('canvas');
+          full.width = w; full.height = h;
+          drawTurned(full.getContext('2d'), w, h);
+          const c = crop || { x: 0, y: 0, w: 1, h: 1 };
+          const sx = Math.round(c.x * w); const sy = Math.round(c.y * h); const sw = Math.max(1, Math.round(c.w * w)); const sh = Math.max(1, Math.round(c.h * h));
+          const scale = Math.min(1, 1800 / Math.max(sw, sh));
+          const out = document.createElement('canvas');
+          out.width = Math.round(sw * scale); out.height = Math.round(sh * scale);
+          out.getContext('2d').drawImage(full, sx, sy, sw, sh, 0, 0, out.width, out.height);
+          out.toBlob((b) => { done = true; resolve(b); dlg.close(); }, 'image/jpeg', 0.88);
+        };
+        dlg.addEventListener('close', () => { if (!done) resolve(null); });
+        requestAnimationFrame(paint);
+      });
+    });
+  }
+
   function passwordCard() {
     return html`<form class="card" id="pwForm"><h2>Change password</h2>
       <div class="field"><label>Current password</label><input type="password" name="current" required autocomplete="current-password"></div>
@@ -646,7 +715,7 @@
               ${isNew ? html`<p class="hint">Save the driver first, then add photos of the front and back of their licence.</p>` : html`<div id="licRead"></div><div class="grid g2 stack">${['front', 'back'].map((side) => html`<div class="licslot" data-side="${side}">
                 <label>${side === 'front' ? 'Front' : 'Back'}</label>
                 ${d[`has_licence_${side}`] ? html`<img class="licimg" src="/api/drivers/${d.id}/licence/${side}?v=${Date.now()}" alt="Licence ${side}" onclick="window.open(this.src)">` : html`<div class="licempty">No photo yet</div>`}
-                <div class="actions"><label class="btn sm dark">Take photo<input type="file" accept="image/*" capture="environment" class="hidden licin"></label><label class="btn sm ghost">Choose saved photo<input type="file" accept="image/*" class="hidden licin"></label>${d[`has_licence_${side}`] ? html`<button type="button" class="btn sm danger" data-licdel="${side}">Remove</button>` : ''}</div></div>`)}</div>`}
+                <div class="actions"><label class="btn sm dark">Take photo<input type="file" accept="image/*" capture="environment" class="hidden licin"></label><label class="btn sm ghost">Choose saved photo<input type="file" accept="image/*" class="hidden licin"></label>${d[`has_licence_${side}`] ? html`<button type="button" class="btn sm ghost" data-licedit>Crop / rotate</button><button type="button" class="btn sm danger" data-licdel="${side}">Remove</button>` : ''}</div></div>`)}</div>`}
             </div>
             <div class="card"><h2>Pay rate</h2><div class="grid g2 stack">
               ${f('hourly_rate', 'Hourly rate ($ incl. GST)', 'type="number" step="0.01" min="0" required')}
@@ -679,16 +748,17 @@
           });
           $$('.licslot', v).forEach((slot) => {
             const side = slot.dataset.side;
-            $$('.licin', slot).forEach((inp) => inp.addEventListener('change', async () => {
-              const file = inp.files[0];
-              if (!file) return;
+            const upload = async (file) => {
+              const edited = await editPhoto(file, `Licence ${side}`);
+              if (!edited) return;
               $('#licRead', v).innerHTML = html`<div class="notice info">${state.config.extraction ? 'Uploading and reading the licence…' : 'Uploading photo…'}</div>`.s;
               try {
                 const fd = new FormData();
-                fd.append('photo', await shrink(file), `licence-${side}.jpg`);
+                fd.append('photo', edited, `licence-${side}.jpg`);
                 const o = await api(`/api/drivers/${d.id}/licence/${side}`, { method: 'POST', body: fd });
                 const img = slot.querySelector('.licimg, .licempty');
                 img.outerHTML = html`<img class="licimg" src="/api/drivers/${d.id}/licence/${side}?v=${Date.now()}" alt="Licence ${side}" onclick="window.open(this.src)">`.s;
+                if (!$('[data-licedit]', slot)) $('.actions', slot).insertAdjacentHTML('beforeend', html`<button type="button" class="btn sm ghost" data-licedit>Crop / rotate</button>`.s), bindEdit();
                 const fm = $('#dForm', v);
                 const got = [];
                 if (o.read && o.read.licence_number) { fm.licence_number.value = o.read.licence_number; got.push('licence number'); }
@@ -698,8 +768,11 @@
                   : o.reading ? html`<div class="notice warn">Photo saved, but no licence details could be read from this side. Type them in, then press <b>Save driver</b>.</div>`
                   : html`<div class="notice ok">Photo saved. Type the licence number and expiry date, then press <b>Save driver</b>.</div>`).s;
               } catch (err) { $('#licRead', v).innerHTML = ''; fail(err); }
-              inp.value = '';
-            }));
+            };
+            $$('.licin', slot).forEach((inp) => inp.addEventListener('change', () => { const f = inp.files[0]; inp.value = ''; if (f) upload(f); }));
+            // Re-edit the saved photo: crop or turn it, then it's saved again.
+            const bindEdit = () => { const b = $('[data-licedit]', slot); if (b) b.onclick = async () => { try { upload(await (await fetch(`/api/drivers/${d.id}/licence/${side}?v=${Date.now()}`)).blob()); } catch (err) { fail(err); } }; };
+            bindEdit();
           });
           $$('[data-licdel]', v).forEach((b) => (b.onclick = async () => {
             if (!(await confirmDialog('Remove this licence photo?', html`<p>The ${b.dataset.licdel} photo is deleted. The licence number and expiry stay.</p>`, 'Remove', true))) return;
