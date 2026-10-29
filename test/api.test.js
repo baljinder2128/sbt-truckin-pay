@@ -10,7 +10,7 @@ process.env.ADMIN_EMAIL = 'boss@test.local';
 process.env.ADMIN_PASSWORD = 'OfficePass1';
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.SMTP_HOST;
-const { app, weeklyRun } = require('../server/index.js');
+const { app, weeklyRun, licenceReminders } = require('../server/index.js');
 const { db, setSetting, getSettings } = require('../server/db');
 const { weekRange, addDays, todayLocal } = require('../server/pay');
 
@@ -262,4 +262,36 @@ test('days off are saved for the week and listed on the RCTI', async () => {
   await office('POST', '/api/runsheets/week', { driver_id: d.id, week: '2026-07-06', days: [], days_off: ['2026-07-08'] });
   assert.deepEqual((await office('GET', `/api/rctis/${fin.id}`)).body.days_off, ['2026-07-08'], 'unticking removes it');
   assert.equal((await office('GET', `/api/rctis/${fin.id}`)).body.total, 320, 'days off add nothing to pay');
+});
+
+test('licence photos, details and the 7-day reminder email', async () => {
+  const office = client();
+  await office('POST', '/api/login', { email: 'boss@test.local', password: 'OfficePass1' });
+  const soon = addDays(todayLocal(), 6);
+  const d = (await office('POST', '/api/drivers', { name: 'Lic Driver', email: 'lic@test.local', password: 'Password1', hourly_rate: 40, phone: '0400 111 222', licence_number: 'ab123', licence_expiry: soon })).body;
+  assert.equal(d.licence_number, 'AB123');
+  assert.equal((await office('PUT', `/api/drivers/${d.id}`, { licence_expiry: '12/03/2029' })).status, 400);
+
+  const fd = new FormData();
+  fd.append('photo', new Blob([fs.readFileSync(path.join(__dirname, '..', 'public', 'icons', 'icon-192.png'))], { type: 'image/png' }), 'front.png');
+  const up = await office('POST', `/api/drivers/${d.id}/licence/front`, fd, true);
+  assert.equal(up.status, 200, JSON.stringify(up.body));
+  assert.equal(up.body.read, null, 'no reading without an API key');
+  assert.equal((await office('GET', `/api/drivers/${d.id}/licence/front`)).status, 200);
+  const other = client();
+  await other('POST', '/api/login', { email: 'wa@test.local', password: 'Password1' });
+  assert.equal((await other('GET', `/api/drivers/${d.id}/licence/front`)).status, 404, 'other drivers cannot see it');
+
+  const before = db.prepare("SELECT COUNT(*) n FROM email_log WHERE subject LIKE 'Licence due: Lic Driver%'").get().n;
+  const sent = await licenceReminders();
+  assert.ok(sent.includes(d.id));
+  const log = db.prepare("SELECT * FROM email_log WHERE subject LIKE 'Licence due: Lic Driver%' ORDER BY id DESC").get();
+  assert.equal(log.to_addr, 'sbtruckin@outlook.com');
+  assert.ok(!(await licenceReminders()).includes(d.id), 'only reminded once per expiry date');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM email_log WHERE subject LIKE 'Licence due: Lic Driver%'").get().n, before + 1);
+
+  // A renewed licence with a new expiry gets its own reminder later, not now
+  await office('PUT', `/api/drivers/${d.id}`, { licence_expiry: addDays(todayLocal(), 400) });
+  assert.ok(!(await licenceReminders()).includes(d.id));
+  assert.ok((await office('GET', '/api/office/dashboard')).body.licences.every((x) => x.id !== d.id));
 });

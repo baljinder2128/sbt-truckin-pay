@@ -13,7 +13,7 @@ const { db, DATA_DIR, STORAGE_SAFE, getSettings, setSetting } = require('./db');
 const { calcShift, round2, weekRange, addDays, todayLocal } = require('./pay');
 const rcti = require('./rcti');
 const { sendMail, smtpConfigured } = require('./mail');
-const { extractRunsheet, extractionEnabled } = require('./extract');
+const { extractRunsheet, extractLicence, extractionEnabled } = require('./extract');
 
 const PORT = Number(process.env.PORT || 3000);
 const TZ = process.env.TZ || 'Australia/Melbourne';
@@ -53,7 +53,7 @@ const upload = multer({
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const bad = (msg, code = 400) => Object.assign(new Error(msg), { status: code });
 
-const PUBLIC_USER = 'id, role, name, email, phone, active, hourly_rate, business_name, abn, gst_registered, address, bank_account_name, bank_bsb, bank_account_number, created_at';
+const PUBLIC_USER = 'id, role, name, email, phone, active, hourly_rate, business_name, abn, gst_registered, address, bank_account_name, bank_bsb, bank_account_number, created_at, licence_number, licence_expiry, licence_front IS NOT NULL AS has_licence_front, licence_back IS NOT NULL AS has_licence_back';
 
 function auth(role) {
   return (req, res, next) => {
@@ -383,6 +383,7 @@ app.get('/api/office/dashboard', auth('office'), (req, res) => {
     to_review: db.prepare("SELECT COUNT(*) n FROM runsheets WHERE status = 'submitted'").get().n,
     unpaid_rctis: db.prepare('SELECT COUNT(*) n, COALESCE(SUM(total),0) total FROM rctis WHERE paid_at IS NULL').get(),
     not_pushed: db.prepare('SELECT COUNT(*) n FROM rctis WHERE pushed_at IS NULL').get().n,
+    licences: db.prepare("SELECT id, name, licence_expiry FROM users WHERE role = 'driver' AND active = 1 AND licence_expiry IS NOT NULL AND licence_expiry != '' AND licence_expiry <= ? ORDER BY licence_expiry").all(addDays(todayLocal(), 30)),
     paid_month: db.prepare('SELECT COUNT(*) n, COALESCE(SUM(total),0) total FROM rctis WHERE substr(paid_at,1,7) = ?').get(todayLocal().slice(0, 7)),
     uninvoiced_past: db.prepare("SELECT COUNT(*) n FROM runsheets WHERE rcti_id IS NULL AND status != 'rejected' AND work_date < ?").get(wk.start).n,
     drivers: db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'driver' AND active = 1").get().n,
@@ -391,7 +392,7 @@ app.get('/api/office/dashboard', auth('office'), (req, res) => {
 });
 
 // ---------- drivers & staff (office) ----------
-const DRIVER_FIELDS = ['name', 'email', 'phone', 'active', 'hourly_rate', 'business_name', 'abn', 'gst_registered', 'address', 'bank_account_name', 'bank_bsb', 'bank_account_number'];
+const DRIVER_FIELDS = ['name', 'email', 'phone', 'active', 'hourly_rate', 'business_name', 'abn', 'gst_registered', 'address', 'bank_account_name', 'bank_bsb', 'bank_account_number', 'licence_number', 'licence_expiry'];
 
 function cleanDriver(b) {
   const o = {};
@@ -402,6 +403,8 @@ function cleanDriver(b) {
   if (o.gst_registered !== undefined) o.gst_registered = o.gst_registered ? 1 : 0;
   if (o.abn) { o.abn = String(o.abn).replace(/\s+/g, ''); if (!/^\d{11}$/.test(o.abn)) throw bad('ABN must be 11 digits'); o.abn = o.abn.replace(/^(\d{2})(\d{3})(\d{3})(\d{3})$/, '$1 $2 $3 $4'); }
   if (o.bank_bsb) { const d = String(o.bank_bsb).replace(/\D/g, ''); if (d.length !== 6) throw bad('BSB must be 6 digits'); o.bank_bsb = `${d.slice(0, 3)}-${d.slice(3)}`; }
+  if (o.licence_number !== undefined) o.licence_number = String(o.licence_number).trim().toUpperCase() || null;
+  if (o.licence_expiry !== undefined) { o.licence_expiry = String(o.licence_expiry || '').trim() || null; if (o.licence_expiry && !/^\d{4}-\d{2}-\d{2}$/.test(o.licence_expiry)) throw bad('Pick the licence expiry date'); }
   if (o.bank_account_number) { o.bank_account_number = String(o.bank_account_number).replace(/\s+/g, ''); if (!/^\d{4,10}$/.test(o.bank_account_number)) throw bad('Account number should be 4 to 10 digits'); }
   return o;
 }
@@ -449,6 +452,7 @@ app.delete('/api/drivers/:id', auth('office'), (req, res) => {
   const d = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'driver'").get(Number(req.params.id));
   if (!d) throw bad('Driver not found', 404);
   if (db.prepare('SELECT COUNT(*) n FROM rctis WHERE driver_id = ?').get(d.id).n) throw bad(`${d.name} has RCTIs, which are needed for your BAS and records. Mark them as left instead.`);
+  for (const f of [d.licence_front, d.licence_back]) if (f) fs.rmSync(path.join(DATA_DIR, f), { force: true });
   db.exec('BEGIN');
   try {
     db.prepare('DELETE FROM runsheets WHERE driver_id = ?').run(d.id);
@@ -458,6 +462,75 @@ app.delete('/api/drivers/:id', auth('office'), (req, res) => {
   } catch (e) { db.exec('ROLLBACK'); throw e; }
   res.json({ ok: true });
 });
+
+// ---------- driver licence ----------
+// Front and back photos; the licence number and expiry are read off the photo when photo reading is on,
+// and the office checks them before saving.
+app.post('/api/drivers/:id/licence/:side', auth('office'), upload.single('photo'), wrap(async (req, res) => {
+  const side = req.params.side;
+  if (!['front', 'back'].includes(side)) throw bad('Front or back?');
+  const d = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'driver'").get(Number(req.params.id));
+  if (!d) throw bad('Driver not found', 404);
+  if (!req.file) throw bad('Attach a photo of the licence');
+  const rel = path.join('licences', `driver-${d.id}-${side}-${Date.now()}${path.extname(req.file.filename) || '.jpg'}`);
+  fs.renameSync(req.file.path, path.join(DATA_DIR, rel));
+  const old = d[`licence_${side}`];
+  db.prepare(`UPDATE users SET licence_${side} = ? WHERE id = ?`).run(rel, d.id);
+  if (old) fs.rmSync(path.join(DATA_DIR, old), { force: true });
+  let read = null;
+  let read_error = null;
+  if (extractionEnabled) {
+    try { read = await extractLicence(path.join(DATA_DIR, rel), req.file.mimetype); }
+    catch (e) { console.error('licence read failed', e.message); read_error = 'Could not read the licence automatically. Please type the details.'; }
+  }
+  res.json({ ok: true, read, read_error, reading: extractionEnabled });
+}));
+app.get('/api/drivers/:id/licence/:side', auth(), (req, res) => {
+  const id = Number(req.params.id);
+  if (!isOffice(req) && id !== req.user.id) throw bad('Not found', 404);
+  const d = db.prepare("SELECT licence_front, licence_back FROM users WHERE id = ? AND role = 'driver'").get(id);
+  const f = d && d[`licence_${req.params.side}`];
+  if (!f) return res.status(404).end();
+  res.setHeader('Cache-Control', 'private, no-cache');
+  res.sendFile(path.join(DATA_DIR, f));
+});
+app.delete('/api/drivers/:id/licence/:side', auth('office'), (req, res) => {
+  const side = req.params.side;
+  if (!['front', 'back'].includes(side)) throw bad('Front or back?');
+  const d = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'driver'").get(Number(req.params.id));
+  if (!d) throw bad('Driver not found', 404);
+  if (d[`licence_${side}`]) fs.rmSync(path.join(DATA_DIR, d[`licence_${side}`]), { force: true });
+  db.prepare(`UPDATE users SET licence_${side} = NULL WHERE id = ?`).run(d.id);
+  res.json({ ok: true });
+});
+
+// Emails the office once per licence when it is 7 days or less from expiry (or already expired).
+async function licenceReminders() {
+  const s = getSettings();
+  const to = s.licence_reminder_email || s.office_email;
+  const today = todayLocal();
+  const due = db.prepare(`SELECT * FROM users WHERE role = 'driver' AND active = 1 AND licence_expiry IS NOT NULL AND licence_expiry != ''
+    AND licence_expiry <= ? AND (licence_reminded_for IS NULL OR licence_reminded_for != licence_expiry)`).all(addDays(today, 7));
+  const sent = [];
+  for (const d of due) {
+    const days = Math.round((Date.parse(d.licence_expiry) - Date.parse(today)) / 864e5);
+    const when = days > 1 ? `in ${days} days` : days === 1 ? 'tomorrow' : days === 0 ? 'today' : `${-days} day${days === -1 ? '' : 's'} ago`;
+    const html = `<div style="font-family:Arial,sans-serif">
+      <div style="background:#15181C;color:#fff;padding:14px 18px;border-bottom:5px solid #E10600"><b>${esc(s.company_name)}</b> · Driver licence ${days < 0 ? 'expired' : 'expiring'}</div>
+      <p><b>${esc(d.name)}</b>'s driver licence ${days < 0 ? 'expired' : 'expires'} <b>${when}</b> (${rcti.auDate(d.licence_expiry)}).</p>
+      <table cellpadding="6" style="font-size:14px">
+        <tr><td><b>Driver</b></td><td>${esc(d.name)}${d.business_name ? ` (${esc(d.business_name)})` : ''}</td></tr>
+        <tr><td><b>Mobile</b></td><td>${esc(d.phone || '—')}</td></tr>
+        <tr><td><b>Email</b></td><td>${esc(d.email)}</td></tr>
+        <tr><td><b>Licence number</b></td><td>${esc(d.licence_number || '—')}</td></tr>
+        <tr><td><b>Expiry</b></td><td>${rcti.auDate(d.licence_expiry)}</td></tr>
+      </table><p style="color:#666;font-size:12px">Once they've renewed, add the new licence photos and expiry date on their page in the SB Truckin pay app.</p></div>`;
+    const attachments = [['front', d.licence_front], ['back', d.licence_back]].filter(([, f]) => f).map(([side, f]) => ({ filename: `${d.name.replace(/\W+/g, '_')}-licence-${side}${path.extname(f)}`, path: path.join(DATA_DIR, f) }));
+    const out = await sendMail({ to, subject: `Licence ${days < 0 ? 'expired' : 'due'}: ${d.name} – ${rcti.auDate(d.licence_expiry)}`, html, attachments });
+    if (out.ok) { db.prepare('UPDATE users SET licence_reminded_for = ? WHERE id = ?').run(d.licence_expiry, d.id); sent.push(d.id); }
+  }
+  return sent;
+}
 
 app.get('/api/staff', auth('office'), (req, res) => res.json(db.prepare("SELECT id, name, email, phone, active FROM users WHERE role = 'office' ORDER BY name").all()));
 app.post('/api/staff', auth('office'), (req, res) => {
@@ -477,7 +550,7 @@ app.put('/api/staff/:id', auth('office'), (req, res) => {
 });
 
 // ---------- settings ----------
-const SETTING_KEYS = ['company_name', 'company_abn', 'company_address', 'company_phone', 'company_email', 'office_email', 'rcti_prefix', 'rcti_next_number', 'payment_terms', 'rcti_agreement', 'auto_weekly_rcti', 'auto_email_runsheets'];
+const SETTING_KEYS = ['licence_reminder_email', 'company_name', 'company_abn', 'company_address', 'company_phone', 'company_email', 'office_email', 'rcti_prefix', 'rcti_next_number', 'payment_terms', 'rcti_agreement', 'auto_weekly_rcti', 'auto_email_runsheets'];
 app.get('/api/settings', auth('office'), (req, res) => {
   const s = getSettings();
   res.json({ ...Object.fromEntries(SETTING_KEYS.map((k) => [k, s[k]])), has_logo: !!s.logo_path, smtp: smtpConfigured(), smtp_from_env: !!process.env.SMTP_HOST, smtp_host: s.smtp_host, smtp_user: s.smtp_user, smtp_pass_set: !!s.smtp_pass, brevo_key_set: !!s.brevo_api_key, brevo_from_env: !!process.env.BREVO_API_KEY, extraction: extractionEnabled, timezone: TZ, storage_safe: STORAGE_SAFE });
@@ -671,8 +744,12 @@ async function weeklyRun() {
     weeklyBusy = false;
   }
 }
-const runWeekly = () => weeklyRun().catch((e) => console.error('weekly run failed', e));
+const runWeekly = () => {
+  weeklyRun().catch((e) => console.error('weekly run failed', e));
+  licenceReminders().catch((e) => console.error('licence reminders failed', e));
+};
 cron.schedule('0 1 * * 0', runWeekly, { timezone: TZ });
+cron.schedule('0 8 * * *', () => licenceReminders().catch((e) => console.error('licence reminders failed', e)), { timezone: TZ });
 
 if (require.main === module) {
   // Hosts route traffic to the PORT they set, but a domain can be pointed at another port by hand,
@@ -684,4 +761,4 @@ if (require.main === module) {
   if (!STORAGE_SAFE) console.warn('WARNING: no Railway volume attached. Runsheets, drivers and RCTIs will be wiped on the next deploy.');
   console.log(`TZ ${TZ}, email ${smtpConfigured() ? 'SMTP' : 'outbox only'}, photo reading ${extractionEnabled ? 'on' : 'off'}, data in ${DATA_DIR}`);
 }
-module.exports = { app, weeklyRun };
+module.exports = { app, weeklyRun, licenceReminders };

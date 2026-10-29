@@ -109,6 +109,13 @@ CREATE TABLE IF NOT EXISTS email_log (
 );
 `);
 
+// Columns added after the first release.
+const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+for (const [col, type] of [['licence_number', 'TEXT'], ['licence_expiry', 'TEXT'], ['licence_front', 'TEXT'], ['licence_back', 'TEXT'], ['licence_reminded_for', 'TEXT']]) {
+  if (!userCols.includes(col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${type}`);
+}
+fs.mkdirSync(path.join(DATA_DIR, 'licences'), { recursive: true });
+
 const DEFAULT_SETTINGS = {
   company_name: 'SB Truckin Pty Ltd',
   company_abn: '62 604 022 255',
@@ -130,6 +137,7 @@ const DEFAULT_SETTINGS = {
   smtp_user: 'baljinder2128@gmail.com',
   smtp_pass: '',
   brevo_api_key: '',
+  licence_reminder_email: 'sbtruckin@outlook.com',
 };
 const insertDefault = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
 for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insertDefault.run(k, v);

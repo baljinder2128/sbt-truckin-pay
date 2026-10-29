@@ -216,7 +216,7 @@
           <div class="card"><h2>Details on your RCTI</h2><dl class="kv">
             <dt>Name</dt><dd>${me.name}</dd><dt>Business</dt><dd>${me.business_name || '—'}</dd><dt>ABN</dt><dd>${me.abn || '—'}</dd>
             <dt>GST</dt><dd>${me.gst_registered ? 'Registered' : 'Not registered'}</dd><dt>Address</dt><dd>${me.address || '—'}</dd>
-            <dt>Mobile</dt><dd>${me.phone || '—'}</dd><dt>Hourly rate</dt><dd>${money(me.hourly_rate)}/hr incl. GST</dd></dl></div>
+            <dt>Mobile</dt><dd>${me.phone || '—'}</dd><dt>Licence</dt><dd>${me.licence_number || '—'}${me.licence_expiry ? ` · expires ${auDate(me.licence_expiry)}` : ''}</dd><dt>Hourly rate</dt><dd>${money(me.hourly_rate)}/hr incl. GST</dd></dl></div>
           <div class="card"><h2>Pay into</h2><dl class="kv"><dt>Account name</dt><dd>${me.bank_account_name || '—'}</dd><dt>BSB</dt><dd>${me.bank_bsb || '—'}</dd><dt>Account</dt><dd>${me.bank_account_number ? '•••• ' + me.bank_account_number.slice(-4) : '—'}</dd></dl>
             <p class="small muted">To change any of these, contact the SB Truckin office.</p></div>
           ${passwordCard()}`,
@@ -234,6 +234,21 @@
   // RCTI lines with the days marked off slotted in by date.
   const withOffs = (r) => [...r.runsheets, ...(r.days_off || []).map((d) => ({ work_date: d, off: true }))]
     .sort((a, b) => a.work_date.localeCompare(b.work_date) || String(a.start_time).localeCompare(String(b.start_time)));
+
+  // Shrink photos on the phone before upload: quicker on mobile data, and turns iPhone HEIC into JPEG.
+  async function shrink(file, max = 1800) {
+    try {
+      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(bmp.width * scale);
+      c.height = Math.round(bmp.height * scale);
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      return await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
+    } catch {
+      return file;
+    }
+  }
 
   function passwordCard() {
     return html`<form class="card" id="pwForm"><h2>Change password</h2>
@@ -272,6 +287,7 @@
       const d = await api('/api/office/dashboard');
       return html`<h1>Dashboard</h1>
         ${state.config.storage_safe === false ? html`<div class="notice err"><b>Data is not being kept.</b> No storage volume is attached in Railway, so drivers, runsheets and RCTIs are wiped every time a new version goes live.</div>` : ''}
+        ${d.licences.length ? html`<div class="notice ${d.licences.some((x) => x.licence_expiry <= addDays(today(), 7)) ? 'err' : 'warn'}"><b>Driver licences:</b> ${d.licences.map((x, i) => html`${i ? ', ' : ''}<a href="#/driver/${x.id}">${x.name}</a> ${x.licence_expiry < today() ? 'expired' : 'expires'} ${auDate(x.licence_expiry)}`)}.</div>` : ''}
         ${d.missing_details.length ? html`<div class="notice warn"><b>Missing RCTI details:</b> ${d.missing_details.map((x, i) => html`${i ? ', ' : ''}<a href="#/driver/${x.id}">${x.name}</a>`)} need a rate, ABN or bank details before their RCTIs are complete.</div>` : ''}
         <div class="grid g4" style="margin-bottom:16px">
           <div class="stat dark"><div class="k">This week</div><div class="v">${hrs(d.this_week.hours)}<span style="font-size:16px"> hrs</span></div><div class="s">${d.this_week.n} runsheets · ${money(d.this_week.amount)}</div></div>
@@ -599,7 +615,7 @@
     async drivers() {
       state.cache.drivers = null;
       const driverTable = (list, empty) => html`<div class="card flush"><div class="tablewrap"><table><thead><tr><th>Name</th><th>Business / ABN</th><th class="num">Rate</th><th>GST</th><th>Bank</th><th>Login</th><th></th></tr></thead>
-          <tbody>${list.length ? list.map((d) => html`<tr class="click" data-go="#/driver/${d.id}"><td><b>${d.name}</b><div class="small muted">${d.phone || ''}</div></td><td>${d.business_name || '—'}<div class="small muted">${d.abn || 'No ABN'}</div></td><td class="num">${d.hourly_rate ? money(d.hourly_rate) : html`<span class="pill rejected">Set rate</span>`}</td><td>${d.gst_registered ? 'Yes' : 'No'}</td><td class="small">${d.bank_bsb ? `${d.bank_bsb} · ${d.bank_account_number}` : html`<span class="pill rejected">Missing</span>`}</td><td class="small">${d.email}</td><td>${d.active ? '' : html`<span class="pill">Left</span>`}</td></tr>`) : html`<tr><td colspan="7" class="empty">${empty}</td></tr>`}</tbody></table></div></div>`;
+          <tbody>${list.length ? list.map((d) => html`<tr class="click" data-go="#/driver/${d.id}"><td><b>${d.name}</b><div class="small muted">${d.phone || ''}</div>${d.licence_expiry && d.licence_expiry <= addDays(today(), 30) ? html`<div><span class="pill rejected">Licence ${d.licence_expiry < today() ? 'expired' : 'due'} ${auDate(d.licence_expiry)}</span></div>` : ''}</td><td>${d.business_name || '—'}<div class="small muted">${d.abn || 'No ABN'}</div></td><td class="num">${d.hourly_rate ? money(d.hourly_rate) : html`<span class="pill rejected">Set rate</span>`}</td><td>${d.gst_registered ? 'Yes' : 'No'}</td><td class="small">${d.bank_bsb ? `${d.bank_bsb} · ${d.bank_account_number}` : html`<span class="pill rejected">Missing</span>`}</td><td class="small">${d.email}</td><td>${d.active ? '' : html`<span class="pill">Left</span>`}</td></tr>`) : html`<tr><td colspan="7" class="empty">${empty}</td></tr>`}</tbody></table></div></div>`;
       const ds = await drivers();
       return {
         html: html`<div class="toolbar"><h1 style="margin:0">Drivers</h1><a class="btn" href="#/driver/new">+ Add driver</a></div>
@@ -625,6 +641,13 @@
               ${f('email', 'Email (login)', 'type="email" required')}
               <div class="field"><label>${isNew ? 'Starting password' : 'Reset password'}</label><input name="password" type="text" ${isNew ? 'required minlength="8"' : 'minlength="8" placeholder="Leave blank to keep"'} autocomplete="off"><div class="hint">At least 8 characters. Give this to the driver.</div></div>
             </div><label class="check"><input type="checkbox" name="active" ${d.active ? 'checked' : ''}> Active (can log in and see their RCTIs)</label></div>
+            <div class="card"><h2>Driver licence</h2>
+              <div class="grid g2 stack">${f('licence_number', 'Licence number', 'autocapitalize="characters"')}${f('licence_expiry', 'Expiry date', 'type="date"', 'You get an email 7 days before it expires')}</div>
+              ${isNew ? html`<p class="hint">Save the driver first, then add photos of the front and back of their licence.</p>` : html`<div id="licRead"></div><div class="grid g2 stack">${['front', 'back'].map((side) => html`<div class="licslot" data-side="${side}">
+                <label>${side === 'front' ? 'Front' : 'Back'}</label>
+                ${d[`has_licence_${side}`] ? html`<img class="licimg" src="/api/drivers/${d.id}/licence/${side}?v=${Date.now()}" alt="Licence ${side}" onclick="window.open(this.src)">` : html`<div class="licempty">No photo yet</div>`}
+                <div class="actions"><label class="btn sm dark">Take photo<input type="file" accept="image/*" capture="environment" class="hidden licin"></label><label class="btn sm ghost">Choose saved photo<input type="file" accept="image/*" class="hidden licin"></label>${d[`has_licence_${side}`] ? html`<button type="button" class="btn sm danger" data-licdel="${side}">Remove</button>` : ''}</div></div>`)}</div>`}
+            </div>
             <div class="card"><h2>Pay rate</h2><div class="grid g2 stack">
               ${f('hourly_rate', 'Hourly rate ($ incl. GST)', 'type="number" step="0.01" min="0" required')}
               ${isNew ? '' : html`<div class="field"><label>&nbsp;</label><label class="check"><input type="checkbox" name="apply_rate_to_open"> Apply new rate to runsheets not yet on an RCTI</label></div>`}
@@ -654,6 +677,34 @@
             if (!(await confirmDialog(`Delete ${d.name} for good?`, html`<p>Their details and any times not on an RCTI are removed permanently. This can't be undone.</p>`, 'Delete', true))) return;
             try { await api('/api/drivers/' + id, { method: 'DELETE' }); state.cache.drivers = null; toast('Driver deleted'); location.hash = '#/drivers'; } catch (err) { fail(err); }
           });
+          $$('.licslot', v).forEach((slot) => {
+            const side = slot.dataset.side;
+            $$('.licin', slot).forEach((inp) => inp.addEventListener('change', async () => {
+              const file = inp.files[0];
+              if (!file) return;
+              $('#licRead', v).innerHTML = html`<div class="notice info">${state.config.extraction ? 'Uploading and reading the licence…' : 'Uploading photo…'}</div>`.s;
+              try {
+                const fd = new FormData();
+                fd.append('photo', await shrink(file), `licence-${side}.jpg`);
+                const o = await api(`/api/drivers/${d.id}/licence/${side}`, { method: 'POST', body: fd });
+                const img = slot.querySelector('.licimg, .licempty');
+                img.outerHTML = html`<img class="licimg" src="/api/drivers/${d.id}/licence/${side}?v=${Date.now()}" alt="Licence ${side}" onclick="window.open(this.src)">`.s;
+                const fm = $('#dForm', v);
+                const got = [];
+                if (o.read && o.read.licence_number) { fm.licence_number.value = o.read.licence_number; got.push('licence number'); }
+                if (o.read && o.read.expiry_date) { fm.licence_expiry.value = o.read.expiry_date; got.push('expiry date'); }
+                $('#licRead', v).innerHTML = (got.length ? html`<div class="notice ${o.read.confidence === 'high' ? 'ok' : 'warn'}">Read the ${got.join(' and ')} from the photo. Check them against the licence, then press <b>Save driver</b>.</div>`
+                  : o.read_error ? html`<div class="notice warn">${o.read_error}</div>`
+                  : o.reading ? html`<div class="notice warn">Photo saved, but no licence details could be read from this side. Type them in, then press <b>Save driver</b>.</div>`
+                  : html`<div class="notice ok">Photo saved. Type the licence number and expiry date, then press <b>Save driver</b>.</div>`).s;
+              } catch (err) { $('#licRead', v).innerHTML = ''; fail(err); }
+              inp.value = '';
+            }));
+          });
+          $$('[data-licdel]', v).forEach((b) => (b.onclick = async () => {
+            if (!(await confirmDialog('Remove this licence photo?', html`<p>The ${b.dataset.licdel} photo is deleted. The licence number and expiry stay.</p>`, 'Remove', true))) return;
+            try { await api(`/api/drivers/${d.id}/licence/${b.dataset.licdel}`, { method: 'DELETE' }); toast('Photo removed'); render(); } catch (err) { fail(err); }
+          }));
           $('#dForm', v).addEventListener('submit', async (e) => {
             e.preventDefault();
             const fd = new FormData(e.target);
@@ -695,7 +746,7 @@
             <div class="card"><h2>Company details (on every RCTI)</h2><div class="grid g2 stack">
               ${f('company_name', 'Company name', 'required')}${f('company_abn', 'ABN')}${f('company_phone', 'Phone')}${f('company_email', 'Email (sender)', 'type="email"')}
             </div>${f('company_address', 'Address')}</div>
-            <div class="card"><h2>Office copies</h2>${f('office_email', 'Office email for runsheets and RCTI copies', 'type="email"', 'Office copies of RCTIs are sent here.')}
+            <div class="card"><h2>Office copies</h2>${f('office_email', 'Office email for runsheets and RCTI copies', 'type="email"', 'Office copies of RCTIs are sent here.')}${f('licence_reminder_email', 'Licence reminder email', 'type="email"', 'Gets an email when a driver licence is 7 days from expiry.')}
               <label class="check"><input type="checkbox" name="auto_weekly_rcti" ${s.auto_weekly_rcti === '1' ? 'checked' : ''}> Create RCTIs automatically every Sunday 1am (${s.timezone}) and email office copies</label></div>
             <div class="card"><h2>RCTI</h2><div class="grid g2 stack">${f('rcti_prefix', 'Number prefix')}${f('rcti_next_number', 'Next number', 'type="number" min="1"')}</div>
               <div class="field"><label>Payment terms</label><textarea name="payment_terms">${s.payment_terms}</textarea></div>
