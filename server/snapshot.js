@@ -18,7 +18,9 @@ let lastSaved = null;
 function client() {
   if (!pool) {
     const { Pool } = require('pg');
-    pool = new Pool({ connectionString: URL, max: 2, ssl: /sslmode=disable/.test(URL) ? false : { rejectUnauthorized: false } });
+    // Encryption is set here, so drop sslmode from the link (pg prints a warning about how it reads that setting).
+    const conn = URL.replace(/([?&])sslmode=[^&]*&?/, '$1').replace(/[?&]$/, '');
+    pool = new Pool({ connectionString: conn, max: 2, ssl: /sslmode=disable/.test(URL) ? false : { rejectUnauthorized: false } });
   }
   return pool;
 }
