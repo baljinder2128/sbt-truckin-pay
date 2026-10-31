@@ -866,8 +866,8 @@
             try {
               const o = await api('/api/restore', { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } });
               state.cache.drivers = null;
-              await confirmDialog('Backup restored', html`<p>Restored ${o.drivers} drivers, ${o.runsheets} days of times, ${o.rctis} RCTIs and ${o.files} PDFs and photos.</p>`, 'OK');
-              render();
+              await confirmDialog('Backup restored', html`<p>Restored ${o.drivers} drivers, ${o.runsheets} days of times, ${o.rctis} RCTIs and ${o.files} PDFs and photos.</p><p>Log in again with the office email and password from the old app.</p>`, 'OK');
+              location.reload();
             } catch (err) { fail(err); }
           });
           $('#logoForm', v).addEventListener('submit', async (e) => {

@@ -2,7 +2,6 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const zlib = require('zlib');
 const express = require('express');
 const multer = require('multer');
 const cookieParser = require('cookie-parser');
@@ -13,6 +12,8 @@ const cron = require('node-cron');
 const { db, DATA_DIR, STORAGE_SAFE, getSettings, setSetting } = require('./db');
 const { calcShift, round2, weekRange, addDays, todayLocal } = require('./pay');
 const rcti = require('./rcti');
+const { makeBackup, restoreBackup } = require('./backup');
+const snapshot = require('./snapshot');
 const { sendMail, smtpConfigured } = require('./mail');
 const { extractRunsheet, extractLicence, extractionEnabled } = require('./extract');
 
@@ -20,8 +21,13 @@ const PORT = Number(process.env.PORT || 3000);
 const TZ = process.env.TZ || 'Australia/Melbourne';
 
 // ---------- bootstrap ----------
-let secret = process.env.JWT_SECRET || getSettings().jwt_secret;
-if (!secret) { secret = crypto.randomBytes(32).toString('hex'); setSetting('jwt_secret', secret); }
+let secret;
+// Re-read after a restore so logins and WhatsApp PDF links from the old copy keep working.
+function loadSecret() {
+  secret = process.env.JWT_SECRET || getSettings().jwt_secret;
+  if (!secret) { secret = crypto.randomBytes(32).toString('hex'); setSetting('jwt_secret', secret); }
+}
+loadSecret();
 
 if (!db.prepare("SELECT 1 FROM users WHERE role = 'office'").get()) {
   const email = process.env.ADMIN_EMAIL || 'office@sbttruckin.com.au';
@@ -40,6 +46,11 @@ app.use((req, res, next) => {
   next();
 });
 app.get('/api/health', (req, res) => res.json({ ok: true }));
+// Any change through the API is copied to the online database a few seconds later (when one is set up).
+app.use('/api', (req, res, next) => {
+  if (req.method !== 'GET' && !/^\/(login|logout)$/.test(req.path)) res.on('finish', () => { if (res.statusCode < 400) snapshot.schedule(); });
+  next();
+});
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -155,7 +166,7 @@ app.post('/api/me/password', auth(), (req, res) => {
 });
 app.get('/api/config', (req, res) => {
   const s = getSettings();
-  res.json({ company_name: s.company_name, has_logo: !!s.logo_path, extraction: extractionEnabled, smtp: smtpConfigured(), today: todayLocal(), storage_safe: STORAGE_SAFE });
+  res.json({ company_name: s.company_name, has_logo: !!s.logo_path, extraction: extractionEnabled, smtp: smtpConfigured(), today: todayLocal(), storage_safe: STORAGE_SAFE || snapshot.enabled });
 });
 app.get('/api/logo', (req, res) => {
   const s = getSettings();
@@ -530,6 +541,7 @@ async function licenceReminders() {
     const out = await sendMail({ to, subject: `Licence ${days < 0 ? 'expired' : 'due'}: ${d.name} – ${rcti.auDate(d.licence_expiry)}`, html, attachments });
     if (out.ok) { db.prepare('UPDATE users SET licence_reminded_for = ? WHERE id = ?').run(d.licence_expiry, d.id); sent.push(d.id); }
   }
+  if (sent.length) snapshot.schedule();
   return sent;
 }
 
@@ -551,73 +563,23 @@ app.put('/api/staff/:id', auth('office'), (req, res) => {
 });
 
 // ---------- backup & restore ----------
-// One file holds the database and every PDF and photo, so the app can be moved to another host
-// (download here, restore there) without any technical steps. It includes logins and the email key: keep it private.
-const BACKUP_DIRS = ['uploads', 'rcti', 'branding', 'licences'];
-function walk(dir) {
-  const out = [];
-  if (!fs.existsSync(path.join(DATA_DIR, dir))) return out;
-  for (const e of fs.readdirSync(path.join(DATA_DIR, dir), { withFileTypes: true })) {
-    const rel = path.join(dir, e.name);
-    if (e.isDirectory()) out.push(...walk(rel)); else if (e.isFile()) out.push(rel);
-  }
-  return out;
-}
+// One file with the database and every PDF and photo, for moving hosts. It includes logins and the email key: keep it private.
 app.get('/api/backup', auth('office'), (req, res) => {
-  const tmp = path.join(DATA_DIR, `backup-${Date.now()}.db`);
-  db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
-  try {
-    const files = {};
-    for (const d of BACKUP_DIRS) for (const rel of walk(d)) files[rel.split(path.sep).join('/')] = fs.readFileSync(path.join(DATA_DIR, rel)).toString('base64');
-    const body = zlib.gzipSync(JSON.stringify({ app: 'sbt-truckin-pay', version: 1, created_at: new Date().toISOString(), db: fs.readFileSync(tmp).toString('base64'), files }));
-    res.setHeader('Content-Type', 'application/gzip');
-    res.setHeader('Content-Disposition', `attachment; filename="sbt-pay-backup-${todayLocal()}.sbtbackup"`);
-    res.send(body);
-  } finally { fs.rmSync(tmp, { force: true }); }
+  res.setHeader('Content-Type', 'application/gzip');
+  res.setHeader('Content-Disposition', `attachment; filename="sbt-pay-backup-${todayLocal()}.sbtbackup"`);
+  res.send(makeBackup());
 });
 app.post('/api/restore', auth('office'), express.raw({ type: () => true, limit: '300mb' }), (req, res) => {
-  let b;
-  try { b = JSON.parse(zlib.gunzipSync(req.body).toString()); } catch { throw bad('That file is not an SB Truckin pay backup'); }
-  if (!b || b.app !== 'sbt-truckin-pay' || !b.db) throw bad('That file is not an SB Truckin pay backup');
-  const tmp = path.join(DATA_DIR, `restore-${Date.now()}.db`);
-  fs.writeFileSync(tmp, Buffer.from(b.db, 'base64'));
-  const counts = {};
-  try {
-    db.exec('PRAGMA foreign_keys = OFF');
-    db.exec(`ATTACH DATABASE '${tmp.replace(/'/g, "''")}' AS r`);
-    const theirs = db.prepare("SELECT name FROM r.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all().map((x) => x.name);
-    const ours = db.prepare("SELECT name FROM main.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all().map((x) => x.name);
-    db.exec('BEGIN');
-    try {
-      for (const t of ours) {
-        db.exec(`DELETE FROM main."${t}"`);
-        if (!theirs.includes(t)) continue;
-        const mine = db.prepare(`PRAGMA main.table_info("${t}")`).all().map((c) => c.name);
-        const cols = db.prepare(`PRAGMA r.table_info("${t}")`).all().map((c) => c.name).filter((c) => mine.includes(c)).map((c) => `"${c}"`).join(', ');
-        db.exec(`INSERT INTO main."${t}" (${cols}) SELECT ${cols} FROM r."${t}"`);
-        counts[t] = db.prepare(`SELECT COUNT(*) n FROM main."${t}"`).get().n;
-      }
-      db.exec('COMMIT');
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
-  } finally {
-    try { db.exec('DETACH DATABASE r'); } catch {}
-    db.exec('PRAGMA foreign_keys = ON');
-    fs.rmSync(tmp, { force: true });
-  }
-  for (const [rel, data] of Object.entries(b.files || {})) {
-    const norm = path.normalize(rel);
-    if (norm.startsWith('..') || path.isAbsolute(norm) || !BACKUP_DIRS.includes(norm.split(path.sep)[0])) continue;
-    fs.mkdirSync(path.dirname(path.join(DATA_DIR, norm)), { recursive: true });
-    fs.writeFileSync(path.join(DATA_DIR, norm), Buffer.from(data, 'base64'));
-  }
-  res.json({ ok: true, drivers: db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'driver'").get().n, rctis: counts.rctis || 0, runsheets: counts.runsheets || 0, files: Object.keys(b.files || {}).length });
+  const out = restoreBackup(req.body);
+  loadSecret();
+  res.json({ ok: true, ...out });
 });
 
 // ---------- settings ----------
 const SETTING_KEYS = ['licence_reminder_email', 'company_name', 'company_abn', 'company_address', 'company_phone', 'company_email', 'office_email', 'rcti_prefix', 'rcti_next_number', 'payment_terms', 'rcti_agreement', 'auto_weekly_rcti', 'auto_email_runsheets'];
 app.get('/api/settings', auth('office'), (req, res) => {
   const s = getSettings();
-  res.json({ ...Object.fromEntries(SETTING_KEYS.map((k) => [k, s[k]])), has_logo: !!s.logo_path, smtp: smtpConfigured(), smtp_from_env: !!process.env.SMTP_HOST, smtp_host: s.smtp_host, smtp_user: s.smtp_user, smtp_pass_set: !!s.smtp_pass, brevo_key_set: !!s.brevo_api_key, brevo_from_env: !!process.env.BREVO_API_KEY, extraction: extractionEnabled, timezone: TZ, storage_safe: STORAGE_SAFE });
+  res.json({ ...Object.fromEntries(SETTING_KEYS.map((k) => [k, s[k]])), has_logo: !!s.logo_path, smtp: smtpConfigured(), smtp_from_env: !!process.env.SMTP_HOST, smtp_host: s.smtp_host, smtp_user: s.smtp_user, smtp_pass_set: !!s.smtp_pass, brevo_key_set: !!s.brevo_api_key, brevo_from_env: !!process.env.BREVO_API_KEY, extraction: extractionEnabled, timezone: TZ, storage_safe: STORAGE_SAFE || snapshot.enabled, online_copy: snapshot.status() });
 });
 app.put('/api/settings', auth('office'), (req, res) => {
   for (const k of SETTING_KEYS) if (req.body[k] !== undefined) setSetting(k, req.body[k]);
@@ -803,6 +765,7 @@ async function weeklyRun() {
     setSetting('last_auto_rcti_week', wk.start);
     const ids = rcti.generateForPeriod(wk.start, wk.end);
     if (ids.length) await emailRctisToOffice(ids);
+    snapshot.schedule();
     console.log(`Weekly RCTI run for ${wk.start}: ${ids.length} created`);
   } finally {
     weeklyBusy = false;
@@ -815,14 +778,17 @@ const runWeekly = () => {
 cron.schedule('0 1 * * 0', runWeekly, { timezone: TZ });
 cron.schedule('0 8 * * *', () => licenceReminders().catch((e) => console.error('licence reminders failed', e)), { timezone: TZ });
 
-if (require.main === module) {
+if (require.main === module) (async () => {
+  // Load the online copy first (if there is one) so nobody sees an empty app after a restart.
+  try { if (await snapshot.boot()) loadSecret(); } catch (e) { console.error('Could not load saved data from DATABASE_URL:', e.message); }
   // Hosts route traffic to the PORT they set, but a domain can be pointed at another port by hand,
   // so also answer on the common ones (3000 and 8080).
   for (const port of new Set([PORT, 3000, 8080])) {
     app.listen(port, '0.0.0.0', () => console.log(`SB Truckin pay app listening on port ${port}`)).on('error', (e) => console.error(`port ${port}: ${e.message}`));
   }
+  for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, async () => { await snapshot.flush().catch(() => {}); process.exit(0); });
   rcti.refreshLayout();
-  if (!STORAGE_SAFE) console.warn('WARNING: no Railway volume attached. Runsheets, drivers and RCTIs will be wiped on the next deploy.');
-  console.log(`TZ ${TZ}, email ${smtpConfigured() ? 'SMTP' : 'outbox only'}, photo reading ${extractionEnabled ? 'on' : 'off'}, data in ${DATA_DIR}`);
-}
+  if (!STORAGE_SAFE && !snapshot.enabled) console.warn('WARNING: storage is not permanent here (no Railway volume, or Render without DATABASE_URL). Data will be wiped on the next deploy.');
+  console.log(`TZ ${TZ}, email ${smtpConfigured() ? 'SMTP' : 'outbox only'}, photo reading ${extractionEnabled ? 'on' : 'off'}, data in ${DATA_DIR}${snapshot.enabled ? ', online copy on' : ''}`);
+})();
 module.exports = { app, weeklyRun, licenceReminders };

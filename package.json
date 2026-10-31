@@ -9,7 +9,9 @@
     "demo": "node --disable-warning=ExperimentalWarning scripts/demo-data.js",
     "test": "node --disable-warning=ExperimentalWarning --test"
   },
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "license": "UNLICENSED",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.134.0",
@@ -20,6 +22,7 @@
     "multer": "^2.4.0",
     "node-cron": "^4.6.0",
     "nodemailer": "^10.1.1",
-    "pdfkit": "^0.20.2"
+    "pdfkit": "^0.20.2",
+    "pg": "^8.23.1"
   }
 }

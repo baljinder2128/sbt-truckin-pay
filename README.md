@@ -107,5 +107,9 @@ Settings → **Backup & moving the app** → **Download backup** gives one `.sbt
 persistent volume at `/data`, log in with the first office login (`ADMIN_EMAIL` / `ADMIN_PASSWORD`, default
 `office@sbttruckin.com.au` / `ChangeMe123!`), then Settings → **Restore from backup**. After that, everyone uses their usual logins.
 
-Northflank's free Sandbox plan (2 services, volumes, always on) runs it as is: new service from this GitHub repo, build with
-the Dockerfile, public port 8080, volume mounted at `/data`.
+### Free hosting on Render (no volume)
+
+Render's free web service wipes its disk on every restart and sleeps after 15 minutes without visits. Set `DATABASE_URL` to a
+Postgres database (Neon's free plan, no card) and the app copies everything (database, PDFs, photos) into it a few seconds after
+each change, and loads it back when it starts on an empty disk. `render.yaml` sets this up as a Blueprint. To stop it sleeping,
+point a free uptime checker (UptimeRobot, cron-job.org) at `/api/health` every 5 minutes; that stays inside Render's 750 free hours.

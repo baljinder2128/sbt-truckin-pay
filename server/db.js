@@ -7,7 +7,8 @@ const { DatabaseSync } = require('node:sqlite');
 const VOLUME_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH || '';
 const DATA_DIR = VOLUME_DIR || process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const ON_RAILWAY = !!(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
-const STORAGE_SAFE = !ON_RAILWAY || !!VOLUME_DIR;
+// Render's free disk is wiped on restart; there the online copy (DATABASE_URL) keeps the data instead.
+const STORAGE_SAFE = (!ON_RAILWAY || !!VOLUME_DIR) && !process.env.RENDER;
 for (const d of ['', 'uploads', 'rcti', 'outbox', 'branding']) fs.mkdirSync(path.join(DATA_DIR, d), { recursive: true });
 
 const db = new DatabaseSync(path.join(DATA_DIR, 'sbt-pay.db'));
