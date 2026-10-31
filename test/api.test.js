@@ -295,3 +295,23 @@ test('licence photos, details and the 7-day reminder email', async () => {
   assert.ok(!(await licenceReminders()).includes(d.id));
   assert.ok((await office('GET', '/api/office/dashboard')).body.licences.every((x) => x.id !== d.id));
 });
+
+test('backup file restores drivers, RCTIs and PDFs', async () => {
+  const office = client();
+  await office('POST', '/api/login', { email: 'boss@test.local', password: 'OfficePass1' });
+  const bk = await office('GET', '/api/backup');
+  assert.equal(bk.status, 200);
+  const before = { drivers: db.prepare("SELECT COUNT(*) n FROM users WHERE role='driver'").get().n, rctis: db.prepare('SELECT COUNT(*) n FROM rctis').get().n };
+  // Change things after the backup, then restore it
+  await office('POST', '/api/drivers', { name: 'After Backup', email: 'after@test.local', password: 'Password1', hourly_rate: 1 });
+  const pdf = db.prepare('SELECT pdf_path FROM rctis LIMIT 1').get().pdf_path;
+  fs.rmSync(path.join(process.env.DATA_DIR, pdf));
+  const res = await fetch(base + '/api/restore', { method: 'POST', headers: { cookie: (await (async () => { const r = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'boss@test.local', password: 'OfficePass1' }) }); return r.headers.get('set-cookie').split(';')[0]; })()), 'content-type': 'application/octet-stream' }, body: Buffer.from(bk.body) });
+  const out = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(out));
+  assert.equal(out.drivers, before.drivers);
+  assert.equal(out.rctis, before.rctis);
+  assert.ok(!db.prepare("SELECT 1 FROM users WHERE email = 'after@test.local'").get());
+  assert.ok(fs.existsSync(path.join(process.env.DATA_DIR, pdf)), 'PDF came back');
+  assert.equal((await office('POST', '/api/restore', { not: 'a backup' })).status, 400);
+});

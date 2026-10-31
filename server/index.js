@@ -2,6 +2,7 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const express = require('express');
 const multer = require('multer');
 const cookieParser = require('cookie-parser');
@@ -547,6 +548,69 @@ app.put('/api/staff/:id', auth('office'), (req, res) => {
   if (b.active !== undefined) db.prepare("UPDATE users SET active = ? WHERE id = ? AND role = 'office'").run(b.active ? 1 : 0, id);
   if (b.password) db.prepare("UPDATE users SET password_hash = ? WHERE id = ? AND role = 'office'").run(bcrypt.hashSync(b.password, 10), id);
   res.json({ ok: true });
+});
+
+// ---------- backup & restore ----------
+// One file holds the database and every PDF and photo, so the app can be moved to another host
+// (download here, restore there) without any technical steps. It includes logins and the email key: keep it private.
+const BACKUP_DIRS = ['uploads', 'rcti', 'branding', 'licences'];
+function walk(dir) {
+  const out = [];
+  if (!fs.existsSync(path.join(DATA_DIR, dir))) return out;
+  for (const e of fs.readdirSync(path.join(DATA_DIR, dir), { withFileTypes: true })) {
+    const rel = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...walk(rel)); else if (e.isFile()) out.push(rel);
+  }
+  return out;
+}
+app.get('/api/backup', auth('office'), (req, res) => {
+  const tmp = path.join(DATA_DIR, `backup-${Date.now()}.db`);
+  db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+  try {
+    const files = {};
+    for (const d of BACKUP_DIRS) for (const rel of walk(d)) files[rel.split(path.sep).join('/')] = fs.readFileSync(path.join(DATA_DIR, rel)).toString('base64');
+    const body = zlib.gzipSync(JSON.stringify({ app: 'sbt-truckin-pay', version: 1, created_at: new Date().toISOString(), db: fs.readFileSync(tmp).toString('base64'), files }));
+    res.setHeader('Content-Type', 'application/gzip');
+    res.setHeader('Content-Disposition', `attachment; filename="sbt-pay-backup-${todayLocal()}.sbtbackup"`);
+    res.send(body);
+  } finally { fs.rmSync(tmp, { force: true }); }
+});
+app.post('/api/restore', auth('office'), express.raw({ type: () => true, limit: '300mb' }), (req, res) => {
+  let b;
+  try { b = JSON.parse(zlib.gunzipSync(req.body).toString()); } catch { throw bad('That file is not an SB Truckin pay backup'); }
+  if (!b || b.app !== 'sbt-truckin-pay' || !b.db) throw bad('That file is not an SB Truckin pay backup');
+  const tmp = path.join(DATA_DIR, `restore-${Date.now()}.db`);
+  fs.writeFileSync(tmp, Buffer.from(b.db, 'base64'));
+  const counts = {};
+  try {
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec(`ATTACH DATABASE '${tmp.replace(/'/g, "''")}' AS r`);
+    const theirs = db.prepare("SELECT name FROM r.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all().map((x) => x.name);
+    const ours = db.prepare("SELECT name FROM main.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all().map((x) => x.name);
+    db.exec('BEGIN');
+    try {
+      for (const t of ours) {
+        db.exec(`DELETE FROM main."${t}"`);
+        if (!theirs.includes(t)) continue;
+        const mine = db.prepare(`PRAGMA main.table_info("${t}")`).all().map((c) => c.name);
+        const cols = db.prepare(`PRAGMA r.table_info("${t}")`).all().map((c) => c.name).filter((c) => mine.includes(c)).map((c) => `"${c}"`).join(', ');
+        db.exec(`INSERT INTO main."${t}" (${cols}) SELECT ${cols} FROM r."${t}"`);
+        counts[t] = db.prepare(`SELECT COUNT(*) n FROM main."${t}"`).get().n;
+      }
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  } finally {
+    try { db.exec('DETACH DATABASE r'); } catch {}
+    db.exec('PRAGMA foreign_keys = ON');
+    fs.rmSync(tmp, { force: true });
+  }
+  for (const [rel, data] of Object.entries(b.files || {})) {
+    const norm = path.normalize(rel);
+    if (norm.startsWith('..') || path.isAbsolute(norm) || !BACKUP_DIRS.includes(norm.split(path.sep)[0])) continue;
+    fs.mkdirSync(path.dirname(path.join(DATA_DIR, norm)), { recursive: true });
+    fs.writeFileSync(path.join(DATA_DIR, norm), Buffer.from(data, 'base64'));
+  }
+  res.json({ ok: true, drivers: db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'driver'").get().n, rctis: counts.rctis || 0, runsheets: counts.runsheets || 0, files: Object.keys(b.files || {}).length });
 });
 
 // ---------- settings ----------

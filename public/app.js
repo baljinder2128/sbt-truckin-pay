@@ -36,7 +36,7 @@
 
   async function api(path, opts = {}) {
     const o = { credentials: 'same-origin', ...opts, headers: { ...(opts.headers || {}) } };
-    if (o.body && !(o.body instanceof FormData)) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(o.body); }
+    if (o.body && !(o.body instanceof FormData) && !(o.body instanceof Blob)) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(o.body); }
     const res = await fetch(path, o);
     if (res.status === 401 && path !== '/api/login') { state.me = null; render(); throw new Error('Please log in'); }
     const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
@@ -826,6 +826,10 @@
               <div class="field"><label>RCTI agreement wording</label><textarea name="rcti_agreement" style="min-height:120px">${s.rcti_agreement}</textarea><div class="hint">Printed on every RCTI. Have your accountant check it matches your written RCTI agreements with drivers.</div></div></div>
             <div class="actions" style="margin-bottom:16px"><button class="btn xl">Save settings</button></div>
           </form>
+          <div class="card"><h2>Backup &amp; moving the app</h2>
+            <p class="muted">One file with everything: drivers, times, RCTIs, payments, PDFs and licence photos. Download one now and then, and use it to move the app to a new host. It holds logins and your email key, so keep it private.</p>
+            <div class="actions"><a class="btn dark" href="/api/backup">Download backup</a><label class="btn ghost danger">Restore from backup<input type="file" id="restoreIn" class="hidden" accept=".sbtbackup,application/gzip,application/octet-stream"></label></div>
+            <p class="hint">Restore replaces everything in this app with what's in the backup file.</p></div>
           <form class="card" id="logoForm"><h2>Logo</h2>${s.has_logo ? html`<img src="/api/logo?${Date.now()}" style="max-height:70px;background:#15181c;padding:8px;border-radius:8px;margin-bottom:10px">` : html`<p class="muted">Using the SB logo supplied with the app.</p>`}
             <div class="actions"><input type="file" name="logo" accept="image/png,image/jpeg" style="max-width:320px"><button class="btn dark">Upload logo</button></div><p class="hint">Shows in the app header and on RCTIs. A light logo on transparent PNG looks best on the dark header.</p></form>
           <div class="card"><h2>Office logins</h2><ul class="list">${staff.map((u) => html`<li><div class="grow"><b>${u.name}</b><div class="small muted">${u.email}</div></div>${u.active ? '' : html`<span class="pill">Off</span>`}${u.id !== state.me.id ? html`<button class="btn sm ghost" data-toggle="${u.id}" data-on="${u.active ? 0 : 1}">${u.active ? 'Switch off' : 'Switch on'}</button>` : html`<span class="small muted">You</span>`}</li>`)}</ul>
@@ -853,6 +857,19 @@
             } catch (err) { btn.disabled = false; btn.textContent = 'Save and send test email'; fail(err); }
           });
           $('#mailOff', v) && ($('#mailOff', v).onclick = async () => { try { await api('/api/settings/email', { method: 'PUT', body: { smtp_pass: '', brevo_api_key: '' } }); state.mailResult = null; toast('Email sending stopped'); render(); } catch (err) { fail(err); } });
+          $('#restoreIn', v).addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            e.target.value = '';
+            if (!file) return;
+            if (!(await confirmDialog('Restore from backup?', html`<p>Everything in this app is replaced with what's in <b>${file.name}</b>. Anything added here since that backup is lost.</p>`, 'Restore', true))) return;
+            toast('Restoring…');
+            try {
+              const o = await api('/api/restore', { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } });
+              state.cache.drivers = null;
+              await confirmDialog('Backup restored', html`<p>Restored ${o.drivers} drivers, ${o.runsheets} days of times, ${o.rctis} RCTIs and ${o.files} PDFs and photos.</p>`, 'OK');
+              render();
+            } catch (err) { fail(err); }
+          });
           $('#logoForm', v).addEventListener('submit', async (e) => {
             e.preventDefault();
             try { await api('/api/settings/logo', { method: 'POST', body: new FormData(e.target) }); state.config = await api('/api/config'); toast('Logo updated'); render(); } catch (err) { fail(err); }

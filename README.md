@@ -99,3 +99,13 @@ To put it in the **Google Play Store**, wrap the hosted site as a Trusted Web Ac
 - Pending = everything not marked paid (uninvoiced runsheets include estimated GST). Cleared = RCTIs marked paid.
 
 Have your accountant check the RCTI agreement wording (Settings) matches the written RCTI agreements you hold with each driver.
+
+## Moving to another host
+
+Settings → **Backup & moving the app** → **Download backup** gives one `.sbtbackup` file with the database and every PDF and photo
+(it includes logins and the email key, so keep it private). On the new host, deploy this repo with the Dockerfile, attach a
+persistent volume at `/data`, log in with the first office login (`ADMIN_EMAIL` / `ADMIN_PASSWORD`, default
+`office@sbttruckin.com.au` / `ChangeMe123!`), then Settings → **Restore from backup**. After that, everyone uses their usual logins.
+
+Northflank's free Sandbox plan (2 services, volumes, always on) runs it as is: new service from this GitHub repo, build with
+the Dockerfile, public port 8080, volume mounted at `/data`.
