@@ -20,18 +20,23 @@ test.before(() => new Promise((r) => { server = app.listen(0, () => { base = `ht
 test.after(() => { server.close(); setTimeout(() => process.exit(0), 100); });
 
 function client() {
-  let cookie = '';
-  return async (method, p, body, isForm) => {
+  const jar = {};
+  const call = async (method, p, body, isForm) => {
+    const cookie = Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ');
     const res = await fetch(base + p, {
       method,
       headers: { ...(cookie ? { cookie } : {}), ...(body && !isForm ? { 'content-type': 'application/json' } : {}) },
       body: body ? (isForm ? body : JSON.stringify(body)) : undefined,
     });
-    const sc = res.headers.get('set-cookie');
-    if (sc) cookie = sc.split(';')[0];
+    for (const sc of res.headers.getSetCookie()) {
+      const [kv] = sc.split(';'); const i = kv.indexOf('='); const k = kv.slice(0, i); const v = kv.slice(i + 1);
+      if (v && !/Expires=Thu, 01 Jan 1970/i.test(sc)) jar[k] = v; else delete jar[k];
+    }
     const ct = res.headers.get('content-type') || '';
     return { status: res.status, body: ct.includes('json') ? await res.json() : await res.arrayBuffer() };
   };
+  call.jar = jar;
+  return call;
 }
 
 test('full pay flow', async () => {
@@ -314,4 +319,37 @@ test('backup file restores drivers, RCTIs and PDFs', async () => {
   assert.ok(!db.prepare("SELECT 1 FROM users WHERE email = 'after@test.local'").get());
   assert.ok(fs.existsSync(path.join(process.env.DATA_DIR, pdf)), 'PDF came back');
   assert.equal((await office('POST', '/api/restore', { not: 'a backup' })).status, 400);
+});
+
+test('PIN lock asks for the PIN on a new browser session and logs out after 5 wrong tries', async () => {
+  const o = client();
+  assert.equal((await o('POST', '/api/login', { email: 'boss@test.local', password: 'OfficePass1' })).status, 200);
+  assert.equal((await o('PUT', '/api/me/pin', { pin: '12a4', password: 'OfficePass1' })).status, 400);
+  assert.equal((await o('PUT', '/api/me/pin', { pin: '2468', password: 'wrong' })).status, 400);
+  assert.equal((await o('PUT', '/api/me/pin', { pin: '2468', password: 'OfficePass1' })).body.has_pin, true);
+  assert.equal((await o('GET', '/api/drivers')).status, 200); // setting it keeps this window unlocked
+
+  // Browser closed: the login stays, the unlock goes.
+  delete o.jar.sbtpin;
+  const me = await o('GET', '/api/me');
+  assert.equal(me.body.locked, true);
+  assert.equal(me.body.has_pin, true);
+  assert.equal((await o('GET', '/api/drivers')).status, 423);
+  assert.equal((await o('POST', '/api/pin/unlock', { pin: '1111' })).status, 400);
+  assert.equal((await o('POST', '/api/pin/unlock', { pin: '2468' })).status, 200);
+  assert.equal((await o('GET', '/api/drivers')).status, 200);
+
+  // Lock button / idle lock, then too many wrong PINs logs out.
+  await o('POST', '/api/pin/lock');
+  assert.equal((await o('GET', '/api/drivers')).status, 423);
+  for (let i = 0; i < 4; i++) assert.equal((await o('POST', '/api/pin/unlock', { pin: '0000' })).status, 400);
+  assert.equal((await o('POST', '/api/pin/unlock', { pin: '0000' })).status, 401);
+  assert.equal((await o('GET', '/api/me')).status, 401);
+
+  // Password login unlocks, and the PIN can be turned off.
+  await o('POST', '/api/login', { email: 'boss@test.local', password: 'OfficePass1' });
+  assert.equal((await o('GET', '/api/drivers')).status, 200);
+  assert.equal((await o('PUT', '/api/me/pin', { pin: '', password: 'OfficePass1' })).body.has_pin, false);
+  delete o.jar.sbtpin;
+  assert.equal((await o('GET', '/api/drivers')).status, 200);
 });

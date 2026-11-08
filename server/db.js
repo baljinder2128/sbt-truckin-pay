@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS email_log (
 
 // Columns added after the first release.
 const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
-for (const [col, type] of [['licence_number', 'TEXT'], ['licence_expiry', 'TEXT'], ['licence_front', 'TEXT'], ['licence_back', 'TEXT'], ['licence_reminded_for', 'TEXT']]) {
+for (const [col, type] of [['licence_number', 'TEXT'], ['licence_expiry', 'TEXT'], ['licence_front', 'TEXT'], ['licence_back', 'TEXT'], ['licence_reminded_for', 'TEXT'], ['pin_hash', 'TEXT']]) {
   if (!userCols.includes(col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${type}`);
 }
 fs.mkdirSync(path.join(DATA_DIR, 'licences'), { recursive: true });

@@ -247,3 +247,5 @@ dialog .db { padding: 18px; }
 .brand .wordmark { font-size: 26px; }
 .login .hero img.logo { height: 92px; width: auto; display: block; margin: 0 auto 6px; }
 .login .hero .wordmark { font-size: 40px; }
+
+.pinbox { font-size: 28px; letter-spacing: 12px; text-align: center; }

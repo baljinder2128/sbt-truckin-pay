@@ -67,13 +67,29 @@ const bad = (msg, code = 400) => Object.assign(new Error(msg), { status: code })
 
 const PUBLIC_USER = 'id, role, name, email, phone, active, hourly_rate, business_name, abn, gst_registered, address, bank_account_name, bank_bsb, bank_account_number, created_at, licence_number, licence_expiry, licence_front IS NOT NULL AS has_licence_front, licence_back IS NOT NULL AS has_licence_back';
 
-function auth(role) {
+// PIN lock: a user with a PIN must enter it each time the app is opened (the unlock cookie lasts until the
+// browser or app window closes, or the app locks itself after 15 minutes idle). Logging in with the password also unlocks.
+const pinTag = (hash) => (hash || '').slice(-12);
+function setUnlocked(res, req, u) {
+  if (!u.pin_hash) return;
+  res.cookie('sbtpin', jwt.sign({ uid: u.id, pin: pinTag(u.pin_hash) }, secret, { expiresIn: '12h' }), { httpOnly: true, sameSite: 'lax', secure: req.secure });
+}
+function isUnlocked(req, uid, hash) {
+  if (!hash) return true;
+  try { const t = jwt.verify(req.cookies.sbtpin || '', secret); return t.uid === uid && t.pin === pinTag(hash); } catch { return false; }
+}
+
+function auth(role, { allowLocked = false } = {}) {
   return (req, res, next) => {
     try {
       const tok = req.cookies.sbt || (req.headers.authorization || '').replace(/^Bearer /, '');
       const { uid } = jwt.verify(tok, secret);
       const u = db.prepare(`SELECT ${PUBLIC_USER} FROM users WHERE id = ?`).get(uid);
       if (!u || !u.active) throw new Error();
+      const { pin_hash: pinHash } = db.prepare('SELECT pin_hash FROM users WHERE id = ?').get(uid);
+      u.has_pin = !!pinHash;
+      u.locked = !isUnlocked(req, uid, pinHash);
+      if (u.locked && !allowLocked) return res.status(423).json({ error: 'Enter your PIN', locked: true });
       if (role && u.role !== role) return res.status(403).json({ error: 'Office access only' });
       req.user = u;
       next();
@@ -152,10 +168,46 @@ app.post('/api/login', (req, res) => {
   if (!u || !u.active || !bcrypt.compareSync(String(password || ''), u.password_hash)) return res.status(401).json({ error: 'Wrong email or password' });
   const token = jwt.sign({ uid: u.id }, secret, { expiresIn: '30d' });
   res.cookie('sbt', token, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 30 * 864e5 });
+  setUnlocked(res, req, u);
   res.json({ ok: true, role: u.role, token });
 });
-app.post('/api/logout', (req, res) => { res.clearCookie('sbt'); res.json({ ok: true }); });
-app.get('/api/me', auth(), (req, res) => res.json(req.user));
+app.post('/api/logout', (req, res) => { res.clearCookie('sbt'); res.clearCookie('sbtpin'); res.json({ ok: true }); });
+app.get('/api/me', auth(null, { allowLocked: true }), (req, res) => res.json(req.user));
+
+const pinTries = new Map();
+app.post('/api/pin/unlock', auth(null, { allowLocked: true }), (req, res) => {
+  const u = db.prepare('SELECT id, pin_hash FROM users WHERE id = ?').get(req.user.id);
+  if (!u.pin_hash) return res.json({ ok: true });
+  if (bcrypt.compareSync(String((req.body || {}).pin || ''), u.pin_hash)) {
+    pinTries.delete(u.id);
+    setUnlocked(res, req, u);
+    return res.json({ ok: true });
+  }
+  const n = (pinTries.get(u.id) || 0) + 1;
+  pinTries.set(u.id, n);
+  if (n >= 5) {
+    pinTries.delete(u.id);
+    res.clearCookie('sbt'); res.clearCookie('sbtpin');
+    return res.status(401).json({ error: 'Too many wrong PINs. Log in with your email and password.' });
+  }
+  res.status(400).json({ error: `Wrong PIN. ${5 - n} ${5 - n === 1 ? 'try' : 'tries'} left.` });
+});
+app.post('/api/pin/lock', (req, res) => { res.clearCookie('sbtpin'); res.json({ ok: true }); });
+app.put('/api/me/pin', auth(), (req, res) => {
+  const { pin, password } = req.body || {};
+  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!bcrypt.compareSync(String(password || ''), u.password_hash)) throw bad('Password is wrong');
+  if (pin == null || pin === '') {
+    db.prepare('UPDATE users SET pin_hash = NULL WHERE id = ?').run(u.id);
+    res.clearCookie('sbtpin');
+    return res.json({ ok: true, has_pin: false });
+  }
+  if (!/^\d{4,6}$/.test(String(pin))) throw bad('PIN must be 4 to 6 numbers');
+  u.pin_hash = bcrypt.hashSync(String(pin), 10);
+  db.prepare('UPDATE users SET pin_hash = ? WHERE id = ?').run(u.pin_hash, u.id);
+  setUnlocked(res, req, u);
+  res.json({ ok: true, has_pin: true });
+});
 app.post('/api/me/password', auth(), (req, res) => {
   const { current, next } = req.body || {};
   const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);

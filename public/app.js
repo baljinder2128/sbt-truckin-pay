@@ -38,7 +38,13 @@
     const o = { credentials: 'same-origin', ...opts, headers: { ...(opts.headers || {}) } };
     if (o.body && !(o.body instanceof FormData) && !(o.body instanceof Blob)) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(o.body); }
     const res = await fetch(path, o);
-    if (res.status === 401 && path !== '/api/login') { state.me = null; render(); throw new Error('Please log in'); }
+    if (res.status === 401 && path !== '/api/login') {
+      const d = await res.json().catch(() => null);
+      state.me = null; render();
+      if (d && d.error && path === '/api/pin/unlock') setTimeout(() => toast(d.error, true), 50);
+      throw new Error('Please log in');
+    }
+    if (res.status === 423 && state.me) { state.me.locked = true; render(); throw new Error('Enter your PIN'); }
     const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
     if (!res.ok) throw new Error((data && data.error) || `Request failed (${res.status})`);
     return data;
@@ -124,6 +130,7 @@
   async function render() {
     const app = $('#app');
     if (!state.me) { app.innerHTML = loginView(); bindLogin(); return; }
+    if (state.me.locked) { app.innerHTML = pinView(); bindPin(); return; }
     const r = route();
     const parts = r.split('/').filter(Boolean);
     const views = state.me.role === 'driver' ? DRIVER : OFFICE;
@@ -167,6 +174,75 @@
         location.hash = '#/';
         render();
       } catch (err) { $('#loginErr').innerHTML = html`<div class="notice err">${err.message}</div>`; }
+    });
+  }
+
+  // ---------- PIN lock ----------
+  function pinView() {
+    return html`<div class="login"><div class="box">
+      <div class="hero"><img class="logo" src="${logoSrc()}" alt="SB"><div class="wordmark">TRUCKIN<small>${state.me.name}</small></div></div>
+      <form class="card" id="pinForm">
+        <h2>Enter your PIN</h2>
+        <div class="field"><input name="pin" class="pinbox" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" required autofocus></div>
+        <div id="pinErr"></div>
+        <button class="btn block xl">Unlock</button>
+        <p class="small" style="text-align:center;margin:14px 0 0"><a href="#" id="pinPw">Forgot PIN? Log in with password</a></p>
+      </form><div class="road"></div></div></div>`.s;
+  }
+  function bindPin() {
+    const f = $('#pinForm');
+    f.pin.focus();
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        await api('/api/pin/unlock', { method: 'POST', body: { pin: f.pin.value } });
+        state.me = await api('/api/me');
+        render();
+      } catch (err) { if (state.me) { $('#pinErr').innerHTML = html`<div class="notice err">${err.message}</div>`; f.pin.value = ''; f.pin.focus(); } }
+    });
+    $('#pinPw').addEventListener('click', async (e) => { e.preventDefault(); await api('/api/logout', { method: 'POST' }).catch(() => {}); state.me = null; render(); });
+  }
+  // Lock again after 15 minutes without use.
+  let lastActive = Date.now();
+  for (const ev of ['pointerdown', 'keydown', 'scroll']) addEventListener(ev, () => { lastActive = Date.now(); }, { passive: true });
+  function idleCheck() {
+    if (state.me && state.me.has_pin && !state.me.locked && Date.now() - lastActive > 15 * 60 * 1000) {
+      fetch('/api/pin/lock', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+      state.me.locked = true; render();
+    }
+  }
+  setInterval(idleCheck, 30 * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) idleCheck(); });
+
+  function pinCard() {
+    const on = state.me && state.me.has_pin;
+    return html`<form class="card" id="pinSetForm"><h2>PIN lock</h2>
+      <p class="small muted">${on ? 'PIN lock is on. The app asks for your PIN each time it is opened, and after 15 minutes without use.' : 'Ask for a 4 to 6 number PIN each time the app is opened on this or any computer or phone.'}</p>
+      <div class="grid g2">
+        <div class="field"><label>${on ? 'New PIN' : 'PIN'}</label><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" autocomplete="off" ${on ? '' : 'required'}></div>
+        <div class="field"><label>Same PIN again</label><input name="pin2" type="password" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" autocomplete="off" ${on ? '' : 'required'}></div>
+      </div>
+      <div class="field"><label>Your password</label><input name="password" type="password" autocomplete="current-password" required></div>
+      <div class="actions"><button class="btn dark">${on ? 'Change PIN' : 'Turn on PIN lock'}</button>${on ? html`<button type="button" class="btn ghost danger" id="pinOff">Turn off PIN lock</button>` : ''}</div></form>`;
+  }
+  function bindPinCard(v) {
+    const f = $('#pinSetForm', v);
+    if (!f) return;
+    const save = async (pin) => {
+      await api('/api/me/pin', { method: 'PUT', body: { pin, password: f.password.value } });
+      state.me = await api('/api/me');
+      toast(pin ? 'PIN saved' : 'PIN lock turned off');
+      render();
+    };
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!/^\d{4,6}$/.test(f.pin.value)) return toast('PIN must be 4 to 6 numbers', true);
+      if (f.pin.value !== f.pin2.value) return toast('The two PINs are different', true);
+      try { await save(f.pin.value); } catch (err) { fail(err); }
+    });
+    $('#pinOff', v)?.addEventListener('click', async () => {
+      if (!f.password.value) return toast('Type your password first', true);
+      try { await save(''); } catch (err) { fail(err); }
     });
   }
 
@@ -219,8 +295,9 @@
             <dt>Mobile</dt><dd>${me.phone || '—'}</dd><dt>Licence</dt><dd>${me.licence_number || '—'}${me.licence_expiry ? ` · expires ${auDate(me.licence_expiry)}` : ''}</dd><dt>Hourly rate</dt><dd>${money(me.hourly_rate)}/hr incl. GST</dd></dl></div>
           <div class="card"><h2>Pay into</h2><dl class="kv"><dt>Account name</dt><dd>${me.bank_account_name || '—'}</dd><dt>BSB</dt><dd>${me.bank_bsb || '—'}</dd><dt>Account</dt><dd>${me.bank_account_number ? '•••• ' + me.bank_account_number.slice(-4) : '—'}</dd></dl>
             <p class="small muted">To change any of these, contact the SB Truckin office.</p></div>
-          ${passwordCard()}`,
-        bind: bindPassword,
+          ${passwordCard()}
+          ${pinCard()}`,
+        bind: (v) => { bindPassword(v); bindPinCard(v); },
       };
     },
   };
@@ -834,7 +911,8 @@
             <div class="actions"><input type="file" name="logo" accept="image/png,image/jpeg" style="max-width:320px"><button class="btn dark">Upload logo</button></div><p class="hint">Shows in the app header and on RCTIs. A light logo on transparent PNG looks best on the dark header.</p></form>
           <div class="card"><h2>Office logins</h2><ul class="list">${staff.map((u) => html`<li><div class="grow"><b>${u.name}</b><div class="small muted">${u.email}</div></div>${u.active ? '' : html`<span class="pill">Off</span>`}${u.id !== state.me.id ? html`<button class="btn sm ghost" data-toggle="${u.id}" data-on="${u.active ? 0 : 1}">${u.active ? 'Switch off' : 'Switch on'}</button>` : html`<span class="small muted">You</span>`}</li>`)}</ul>
             <form id="staffForm" class="grid g4 stack" style="margin-top:12px;align-items:end"><div><label>Name</label><input name="name" required></div><div><label>Email</label><input name="email" type="email" required></div><div><label>Password</label><input name="password" minlength="8" required></div><button class="btn dark">Add office login</button></form></div>
-          ${passwordCard()}`,
+          ${passwordCard()}
+          ${pinCard()}`,
         bind(v) {
           $('#sForm', v).addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -879,7 +957,7 @@
             try { await api('/api/staff', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); toast('Office login added'); render(); } catch (err) { fail(err); }
           });
           $$('[data-toggle]', v).forEach((b) => (b.onclick = async () => { try { await api('/api/staff/' + b.dataset.toggle, { method: 'PUT', body: { active: b.dataset.on === '1' } }); render(); } catch (err) { fail(err); } }));
-          bindPassword(v);
+          bindPassword(v); bindPinCard(v);
         },
       };
     },
