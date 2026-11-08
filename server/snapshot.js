@@ -14,13 +14,15 @@ let timer = null;
 let saving = null;
 let dirty = false;
 let lastSaved = null;
+// Never save until the online copy has been loaded, or an empty disk would overwrite the real data.
+let ready = false;
 
 function client() {
   if (!pool) {
     const { Pool } = require('pg');
     // Encryption is set here, so drop sslmode from the link (pg prints a warning about how it reads that setting).
     const conn = URL.replace(/([?&])sslmode=[^&]*&?/, '$1').replace(/[?&]$/, '');
-    pool = new Pool({ connectionString: conn, max: 2, ssl: /sslmode=disable/.test(URL) ? false : { rejectUnauthorized: false } });
+    pool = new Pool({ connectionString: conn, max: 2, connectionTimeoutMillis: 15000, query_timeout: 60000, ssl: /sslmode=disable/.test(URL) ? false : { rejectUnauthorized: false } });
   }
   return pool;
 }
@@ -32,7 +34,7 @@ async function ensureTable() {
 async function boot() {
   if (!enabled) return null;
   await ensureTable();
-  if (fs.existsSync(MARKER)) return null;
+  if (fs.existsSync(MARKER)) { ready = true; return null; }
   const r = await client().query('SELECT data, saved_at FROM app_snapshot WHERE id = 1');
   let out = null;
   if (r.rows.length) {
@@ -41,14 +43,23 @@ async function boot() {
     console.log(`Loaded saved data from ${r.rows[0].saved_at.toISOString()}: ${out.drivers} drivers, ${out.rctis} RCTIs`);
   } else {
     console.log('No saved data online yet; starting fresh and saving from now on.');
-    schedule(0);
   }
   fs.writeFileSync(MARKER, new Date().toISOString());
+  ready = true;
+  if (!r.rows.length) schedule(0);
   return out;
 }
 
+// If the online database can't be reached at start, keep trying in the background; saving stays off until it loads.
+function retryBoot(onLoaded, ms = 30000) {
+  setTimeout(async () => {
+    try { const out = await boot(); onLoaded(out); console.log('Online copy reached; saving is on again.'); }
+    catch (e) { console.error('Still cannot reach DATABASE_URL:', e.message); retryBoot(onLoaded, ms); }
+  }, ms).unref();
+}
+
 async function saveNow() {
-  if (!enabled) return;
+  if (!enabled || !ready) return;
   if (saving) { dirty = true; return saving; }
   dirty = false;
   saving = (async () => {
@@ -82,4 +93,4 @@ async function flush() {
   if (saving) await saving;
 }
 
-module.exports = { enabled, boot, schedule, flush, saveNow, status: () => ({ enabled, last_saved: lastSaved }) };
+module.exports = { enabled, boot, retryBoot, schedule, flush, saveNow, status: () => ({ enabled, ready, last_saved: lastSaved }) };

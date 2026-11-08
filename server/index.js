@@ -780,7 +780,14 @@ cron.schedule('0 8 * * *', () => licenceReminders().catch((e) => console.error('
 
 if (require.main === module) (async () => {
   // Load the online copy first (if there is one) so nobody sees an empty app after a restart.
-  try { if (await snapshot.boot()) loadSecret(); } catch (e) { console.error('Could not load saved data from DATABASE_URL:', e.message); }
+  if (snapshot.enabled) {
+    let loaded = false;
+    for (let i = 1; i <= 3 && !loaded; i++) {
+      try { if (await snapshot.boot()) loadSecret(); loaded = true; }
+      catch (e) { console.error(`Could not load saved data from DATABASE_URL (try ${i} of 3):`, e.message); }
+    }
+    if (!loaded) snapshot.retryBoot((out) => { if (out) loadSecret(); });
+  }
   // Hosts route traffic to the PORT they set, but a domain can be pointed at another port by hand,
   // so also answer on the common ones (3000 and 8080).
   for (const port of new Set([PORT, 3000, 8080])) {
