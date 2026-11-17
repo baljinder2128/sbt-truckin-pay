@@ -57,6 +57,24 @@ Copy `.env.example` to `.env`.
 | Reading times from runsheet photos | Set `ANTHROPIC_API_KEY`. Without it drivers type the times in from their photo. |
 | Security on a public server | Set a long random `JWT_SECRET` and a strong `ADMIN_PASSWORD`, and serve it over HTTPS. |
 
+## Run it on your own Windows computer (free, no host)
+
+The `desktop/` folder runs the app on one Windows PC with no hosting bill and no storage limit.
+Full plain-English steps are in [`desktop/READ ME FIRST.txt`](desktop/READ%20ME%20FIRST.txt).
+
+- **Start SB Pay.bat** starts the app at http://localhost:3000 and opens the browser. It uses a bundled or installed
+  Node.js 22.13+, or downloads a private copy the first time (no admin rights needed).
+- Data lives in `%USERPROFILE%\SB Truckin Pay\data`. A dated `.sbtbackup` is written to
+  `%USERPROFILE%\SB Truckin Pay\backups` on start, every 3 hours and on close; the newest 30 days are kept
+  (set by `BACKUP_DIR` / `BACKUP_KEEP_DAYS`, which work on any host).
+- **Start automatically with Windows.bat** adds a Startup shortcut. **Phone access (optional).bat** opens a free
+  Cloudflare quick tunnel (temporary `trycloudflare.com` link). Phones on the same Wi-Fi can use the PC's address.
+- On a local or tunnel address, the WhatsApp button sends the RCTI PDF itself instead of a link, since a link to the PC
+  would not open for the driver.
+
+`scripts/build-desktop.sh` builds `dist/SB-Truckin-Pay-Desktop.zip` with the app, its libraries and Node.js inside, so
+the first start needs no download.
+
 ## Putting it online for free (Railway)
 
 1. Sign in at railway.com with GitHub, **New Project → Deploy from GitHub repo → sbt-truckin-pay**. It builds from the `Dockerfile`.

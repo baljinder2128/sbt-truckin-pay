@@ -215,6 +215,7 @@ test('finish week, WhatsApp link and payments by month', async () => {
 
   const share = (await office('GET', `/api/rctis/${fin.body.id}/share`)).body;
   assert.equal(share.phone, '61412345678');
+  assert.equal(share.linkPublic, false); // test server runs on 127.0.0.1, so the page sends the PDF itself
   const pathOnly = new URL(share.link).pathname;
   const pdf = await fetch(base + pathOnly);
   assert.equal(pdf.status, 200);
