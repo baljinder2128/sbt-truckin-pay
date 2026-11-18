@@ -1021,22 +1021,28 @@
     let info;
     try { info = await api(`/api/rctis/${id}/share`); } catch (err) { return fail(err); }
     let file = null;
-    if (matchMedia('(pointer: coarse)').matches && navigator.canShare && window.File) {
+    // On the desktop install the link only works on this computer, so send the PDF itself.
+    const local = info.linkPublic === false;
+    if ((local || matchMedia('(pointer: coarse)').matches) && navigator.canShare && window.File) {
       try {
         const blob = await (await fetch(info.link)).blob();
         const f = new File([blob], info.number + '.pdf', { type: 'application/pdf' });
         if (navigator.canShare({ files: [f] })) file = f;
       } catch { /* fall back to the link */ }
     }
-    const msg = `${info.text}\n\nRCTI PDF: ${info.link}`;
+    const msg = local ? info.text : `${info.text}\n\nRCTI PDF: ${info.link}`;
     const waUrl = `https://wa.me/${info.phone}?text=${encodeURIComponent(msg)}`;
     const sent = () => api(`/api/rctis/${id}/push`, { method: 'POST', body: {} }).then(() => render()).catch(fail);
     dialog(`Send ${info.number} on WhatsApp`, html`
       ${info.phone ? html`<p>To <b>+${info.phone}</b> (the driver's mobile).</p>` : html`<div class="notice warn">No mobile saved for this driver, so WhatsApp will ask you to pick the chat. Add it on the driver's page.</div>`}
       <div class="actions" style="flex-direction:column;align-items:stretch">
-        ${file ? html`<button class="btn wa xl" data-file>Send PDF in WhatsApp</button><p class="hint" style="margin:-4px 0 6px">Your phone's share menu opens. Pick WhatsApp, then the driver.</p>` : ''}
-        <a class="btn ${file ? 'ghost' : 'wa xl'}" data-link href="${waUrl}" target="_blank" rel="noopener">${file ? 'Send a link instead' : 'Open WhatsApp chat'}</a>
-        <p class="hint" style="margin:0">${file ? 'The link opens the same PDF without logging in.' : 'The message has a private link that opens the RCTI PDF without logging in.'}</p>
+        ${file ? html`<button class="btn wa xl" data-file>Send PDF in WhatsApp</button><p class="hint" style="margin:-4px 0 6px">${local ? 'The share menu opens. Pick WhatsApp, then the driver. If WhatsApp is not listed, use the buttons below.' : "Your phone's share menu opens. Pick WhatsApp, then the driver."}</p>` : ''}
+        ${local ? html`
+          <a class="btn ${file ? 'ghost' : 'wa xl'}" href="${info.link}" download="${info.number}.pdf">1. Save the PDF</a>
+          <a class="btn ${file ? 'ghost' : 'wa xl'}" data-link href="${waUrl}" target="_blank" rel="noopener">2. Open WhatsApp chat</a>
+          <p class="hint" style="margin:0">In the chat, click the paperclip (or +), choose Document, and pick ${info.number}.pdf from Downloads.</p>` : html`
+          <a class="btn ${file ? 'ghost' : 'wa xl'}" data-link href="${waUrl}" target="_blank" rel="noopener">${file ? 'Send a link instead' : 'Open WhatsApp chat'}</a>
+          <p class="hint" style="margin:0">${file ? 'The link opens the same PDF without logging in.' : 'The message has a private link that opens the RCTI PDF without logging in.'}</p>`}
       </div>
       <p class="small muted">Sending also shows the RCTI in the driver's app.</p>
       <div class="actions" style="justify-content:flex-end"><button class="btn ghost" data-no>Close</button></div>`, (d) => {

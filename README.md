@@ -57,6 +57,27 @@ Copy `.env.example` to `.env`.
 | Reading times from runsheet photos | Set `ANTHROPIC_API_KEY`. Without it drivers type the times in from their photo. |
 | Security on a public server | Set a long random `JWT_SECRET` and a strong `ADMIN_PASSWORD`, and serve it over HTTPS. |
 
+## Run it on your own Windows computer (free, no host)
+
+The `desktop/` folder runs the app on one Windows PC with no hosting bill and no storage limit.
+Full plain-English steps are in [`desktop/READ ME FIRST.txt`](desktop/READ%20ME%20FIRST.txt).
+
+- **Start SB Pay.bat** runs `node server/index.js --desktop` with the bundled `node\node.exe` (or an installed Node 22.13+).
+  With `--background` it starts the app hidden (log in `app-log.txt`), opens the browser and exits; if the app is
+  already running it only opens the browser. The first start adds a Startup launcher (runs hidden at sign-in) and an
+  `SB Truckin Pay.url` desktop icon pointing at http://localhost:3000.
+  No PowerShell is used, because Windows Smart App Control blocks unsigned scripts but allows the signed node.exe.
+- Data lives in `%USERPROFILE%\SB Truckin Pay\data`. A dated `.sbtbackup` is written to
+  `%USERPROFILE%\SB Truckin Pay\backups` on start, every 3 hours and on close; the newest 30 days are kept
+  (set by `BACKUP_DIR` / `BACKUP_KEEP_DAYS`, which work on any host).
+- **Start automatically with Windows.bat** adds a Startup launcher. **Phone access (optional).bat** opens a free
+  Cloudflare quick tunnel (temporary `trycloudflare.com` link). Phones on the same Wi-Fi can use the PC's address.
+- On a local or tunnel address, the WhatsApp button sends the RCTI PDF itself instead of a link, since a link to the PC
+  would not open for the driver.
+
+`scripts/build-desktop.sh` builds `dist/SB-Truckin-Pay-Desktop.zip` with the app, its libraries and Node.js inside, so
+the first start needs no download.
+
 ## Putting it online for free (Railway)
 
 1. Sign in at railway.com with GitHub, **New Project → Deploy from GitHub repo → sbt-truckin-pay**. It builds from the `Dockerfile`.

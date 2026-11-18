@@ -1,4 +1,6 @@
 // SB Truckin driver pay: API + web app server.
+const desktop = require('./desktop');
+desktop.setup();
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -14,6 +16,7 @@ const { calcShift, round2, weekRange, addDays, todayLocal } = require('./pay');
 const rcti = require('./rcti');
 const { makeBackup, restoreBackup } = require('./backup');
 const snapshot = require('./snapshot');
+const autobackup = require('./autobackup');
 const { sendMail, smtpConfigured } = require('./mail');
 const { extractRunsheet, extractLicence, extractionEnabled } = require('./extract');
 
@@ -724,13 +727,21 @@ function waPhone(p) {
   else if (d.length === 9 && d.startsWith('4')) d = '61' + d;
   return d.length >= 10 ? d : '';
 }
+function isLocalHost(h) {
+  h = String(h || '').toLowerCase().replace(/^\[|\]$/g, '');
+  // A free Cloudflare quick-tunnel link changes each time it starts, so treat it like a local one too.
+  return !h || h === 'localhost' || h.endsWith('.local') || h.endsWith('.trycloudflare.com') || h === '::1' || !h.includes('.') ||
+    /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h);
+}
 app.get('/api/rctis/:id/share', auth('office'), (req, res) => {
   const r = loadRcti(req);
   const d = db.prepare('SELECT phone FROM users WHERE id = ?').get(r.driver_id);
   const link = `${req.protocol}://${req.get('host')}/r/${r.id}/${shareSig(r)}`;
+  // On a desktop install the link only works on this computer or Wi-Fi, so the page sends the PDF itself instead.
+  const linkPublic = !isLocalHost(req.hostname);
   const s = getSettings();
   const text = `Hi ${r.driver_name.split(' ')[0]}, your RCTI ${r.number} for ${rcti.auDate(r.period_start)} – ${rcti.auDate(r.period_end)} from ${s.company_name}: ${r.total_hours.toFixed(2)} hours, total ${rcti.money(r.total)}.`;
-  res.json({ number: r.number, phone: waPhone(d && d.phone), link, text });
+  res.json({ number: r.number, phone: waPhone(d && d.phone), link, linkPublic, text });
 });
 app.get('/r/:id/:sig', wrap(async (req, res) => {
   const r = db.prepare('SELECT * FROM rctis WHERE id = ?').get(Number(req.params.id));
@@ -830,7 +841,8 @@ const runWeekly = () => {
 cron.schedule('0 1 * * 0', runWeekly, { timezone: TZ });
 cron.schedule('0 8 * * *', () => licenceReminders().catch((e) => console.error('licence reminders failed', e)), { timezone: TZ });
 
-if (require.main === module) (async () => {
+if (require.main === module && desktop.enabled && process.argv.includes('--background')) desktop.launchInBackground();
+else if (require.main === module) (async () => {
   // Load the online copy first (if there is one) so nobody sees an empty app after a restart.
   if (snapshot.enabled) {
     let loaded = false;
@@ -842,12 +854,29 @@ if (require.main === module) (async () => {
   }
   // Hosts route traffic to the PORT they set, but a domain can be pointed at another port by hand,
   // so also answer on the common ones (3000 and 8080).
-  for (const port of new Set([PORT, 3000, 8080])) {
-    app.listen(port, '0.0.0.0', () => console.log(`SB Truckin pay app listening on port ${port}`)).on('error', (e) => console.error(`port ${port}: ${e.message}`));
+  // A desktop install only needs its own port (and should not take 8080 from other programs).
+  for (const port of new Set(process.env.SBT_DESKTOP ? [PORT] : [PORT, 3000, 8080])) {
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`SB Truckin pay app listening on port ${port}`);
+      if (desktop.enabled) { desktop.banner(port, DATA_DIR, autobackup.DIR); desktop.installShortcuts(port); if (process.stdout.isTTY) desktop.openBrowser(`http://localhost:${port}`); }
+    }).on('error', (e) => {
+      console.error(`port ${port}: ${e.message}`);
+      // Started twice: the app is already open in another window, so just show it.
+      if (desktop.enabled && e.code === 'EADDRINUSE') {
+        console.log('SB Truckin Pay is already running. Opening it in your browser...');
+        desktop.openBrowser(`http://localhost:${port}`);
+        setTimeout(() => process.exit(0), 3000);
+      }
+    });
   }
-  for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, async () => { await snapshot.flush().catch(() => {}); process.exit(0); });
+  for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGBREAK']) process.on(sig, async () => {
+    autobackup.safeRun();
+    await snapshot.flush().catch(() => {});
+    process.exit(0);
+  });
+  autobackup.start();
   rcti.refreshLayout();
   if (!STORAGE_SAFE && !snapshot.enabled) console.warn('WARNING: storage is not permanent here (no Railway volume, or Render without DATABASE_URL). Data will be wiped on the next deploy.');
-  console.log(`TZ ${TZ}, email ${smtpConfigured() ? 'SMTP' : 'outbox only'}, photo reading ${extractionEnabled ? 'on' : 'off'}, data in ${DATA_DIR}${snapshot.enabled ? ', online copy on' : ''}`);
+  console.log(`TZ ${TZ}, email ${smtpConfigured() ? 'SMTP' : 'outbox only'}, photo reading ${extractionEnabled ? 'on' : 'off'}, data in ${DATA_DIR}${snapshot.enabled ? ', online copy on' : ''}${autobackup.enabled ? `, backups in ${autobackup.DIR}` : ''}`);
 })();
 module.exports = { app, weeklyRun, licenceReminders };

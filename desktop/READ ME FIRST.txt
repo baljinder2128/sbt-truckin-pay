@@ -1,0 +1,117 @@
+SB TRUCKIN PAY ON YOUR OWN COMPUTER
+===================================
+
+Free forever. No Railway, no Render, no monthly bill, no storage limit.
+Everything (drivers, runsheets, RCTIs, licence photos, PDFs) is saved on
+this computer, in this folder:
+
+    C:\Users\<your name>\SB Truckin Pay\data
+
+and a backup copy is made every day in:
+
+    C:\Users\<your name>\SB Truckin Pay\backups
+
+
+
+1. FIRST TIME SET UP (about 5 minutes)
+--------------------------------------
+1. Right-click the zip file you downloaded and choose "Extract All...".
+   Pick a place you will not delete, for example your Documents folder.
+   Click "Extract".
+2. Open the extracted "SB Truckin Pay" folder.
+3. Double-click "Start SB Pay".
+   - If a blue box says "Windows protected your PC": click "More info",
+     then "Run anyway". (Windows says this for any program it does not
+     know. It only happens the first time.)
+   - If Windows Firewall asks about "Node.js": tick "Private networks",
+     then click "Allow". This lets your phone open the app on your Wi-Fi.
+4. A window flashes and the app opens in your browser at
+   http://localhost:3000 . It runs hidden in the background, and from
+   now on starts by itself every time you sign in to Windows.
+5. An "SB Truckin Pay" icon appears on your desktop. Double-click it
+   any time to open the app.
+   Works with Windows Smart App Control left ON.
+
+Tip: in Edge, click the "..." menu > Apps > "Install this site as an app"
+so SB Pay gets its own icon, like before.
+
+
+2. EVERY DAY
+------------
+Double-click the "SB Truckin Pay" icon on the desktop. That's it.
+If it says "can't be reached", double-click "Start SB Pay" once.
+If it is already running it just opens again.
+
+To make it start by itself when the computer turns on, double-click
+"Start automatically with Windows" once.
+
+Note: the app only works while the computer is on. If the computer was
+off at 1am Sunday, the weekly RCTIs are made the next time you open the app.
+
+
+3. MOVING YOUR OLD DATA ACROSS (do this soon)
+---------------------------------------------
+Your old data is still on Railway (or Render). Railway deletes it about
+30 days after the trial ended, so around mid December 2026.
+
+a) Open the old app link in your browser and log in as the office.
+b) Go to Settings > "Backup & moving the app" > "Download backup".
+   A file ending in .sbtbackup is saved to Downloads.
+c) Start the new app on this computer and log in with the first office
+   login:   office@sbttruckin.com.au   /   ChangeMe123!
+d) Settings > "Restore from backup" > pick that .sbtbackup file.
+e) Done. Everyone now uses their usual logins and PINs again.
+
+If the old Railway link no longer opens: log in at railway.com. Railway
+may let you restart it by choosing a paid plan for one month (Hobby,
+about US$5). Download the backup, then cancel the plan. If you are not
+sure, ask Claude to help with this step.
+
+
+4. SENDING RCTIs TO DRIVERS
+---------------------------
+Drivers do not need to reach the app at all. Send each RCTI on WhatsApp
+as normal:
+
+- Click the WhatsApp button on the RCTI.
+- Click "Send PDF in WhatsApp" and pick WhatsApp in the share box,
+  OR click "1. Save the PDF", then "2. Open WhatsApp chat", then in the
+  chat click the paperclip (+) > Document and pick the PDF.
+
+The old "link" way does not work from your computer, because a link to
+your computer only opens on your computer. The PDF itself works anywhere.
+
+
+5. USING IT ON YOUR PHONE (optional)
+------------------------------------
+Easiest, free: when your phone is on the SAME Wi-Fi as the computer,
+open the "Phone on same Wi-Fi" address shown in the black window,
+for example  http://192.168.1.20:3000
+
+From anywhere (free, no sign-up): double-click "Phone access (optional)".
+It shows a link like https://something.trycloudflare.com and copies it.
+That link works while both black windows stay open. It CHANGES every
+time you start it, so it is fine for a quick check, not for drivers to
+bookmark.
+
+
+6. BACKUPS (keep a copy off this computer)
+------------------------------------------
+- A backup is saved automatically when the app starts, every 3 hours,
+  and when you close it. The last 30 days are kept.
+- Once a week, copy the newest file from the "backups" folder to a USB
+  stick, Google Drive, OneDrive or email it to yourself.
+  If this computer breaks, that file brings everything back:
+  install the app on another computer, then Settings > Restore from backup.
+- The backup file has logins and the email key in it. Keep it private.
+
+
+7. IF SOMETHING GOES WRONG
+--------------------------
+- "This site can't be reached": the black window is closed. Double-click
+  "SB Truckin Pay" on the desktop.
+- The black window shows red writing and closes: take a photo of it and
+  send it to Claude.
+- First start needs internet once (it downloads Node.js, about 35 MB,
+  if it is not already in the folder). After that it works offline,
+  except for sending emails.
