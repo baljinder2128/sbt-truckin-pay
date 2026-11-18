@@ -1,4 +1,6 @@
 // SB Truckin driver pay: API + web app server.
+const desktop = require('./desktop');
+desktop.setup();
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -853,7 +855,18 @@ if (require.main === module) (async () => {
   // so also answer on the common ones (3000 and 8080).
   // A desktop install only needs its own port (and should not take 8080 from other programs).
   for (const port of new Set(process.env.SBT_DESKTOP ? [PORT] : [PORT, 3000, 8080])) {
-    app.listen(port, '0.0.0.0', () => console.log(`SB Truckin pay app listening on port ${port}`)).on('error', (e) => console.error(`port ${port}: ${e.message}`));
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`SB Truckin pay app listening on port ${port}`);
+      if (desktop.enabled) { desktop.banner(port, DATA_DIR, autobackup.DIR); desktop.openBrowser(`http://localhost:${port}`); }
+    }).on('error', (e) => {
+      console.error(`port ${port}: ${e.message}`);
+      // Started twice: the app is already open in another window, so just show it.
+      if (desktop.enabled && e.code === 'EADDRINUSE') {
+        console.log('SB Truckin Pay is already running. Opening it in your browser...');
+        desktop.openBrowser(`http://localhost:${port}`);
+        setTimeout(() => process.exit(0), 3000);
+      }
+    });
   }
   for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGBREAK']) process.on(sig, async () => {
     autobackup.safeRun();

@@ -11,8 +11,6 @@ and a backup copy is made every day in:
 
     C:\Users\<your name>\SB Truckin Pay\backups
 
-A shortcut called "SB Truckin Pay data and backups" on your desktop opens
-that folder.
 
 
 1. FIRST TIME SET UP (about 5 minutes)
@@ -31,9 +29,9 @@ that folder.
    http://localhost:3000
    KEEP THE BLACK WINDOW OPEN. You can minimise it (the "_" button).
    Closing it stops the app.
-5. Two shortcuts appear on your desktop:
-   "SB Truckin Pay" starts the app, "SB Truckin Pay data and backups"
-   opens your data folder.
+5. For a desktop icon: right-click "Start SB Pay" > Show more options >
+   Send to > Desktop (create shortcut).
+   Works with Windows Smart App Control left ON.
 
 Tip: in Edge, click the "..." menu > Apps > "Install this site as an app"
 so SB Pay gets its own icon, like before.
@@ -41,7 +39,7 @@ so SB Pay gets its own icon, like before.
 
 2. EVERY DAY
 ------------
-Double-click "SB Truckin Pay" on the desktop. That's it.
+Double-click "Start SB Pay" (or its desktop icon). That's it.
 If it is already running it just opens again.
 
 To make it start by itself when the computer turns on, double-click

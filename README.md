@@ -62,12 +62,13 @@ Copy `.env.example` to `.env`.
 The `desktop/` folder runs the app on one Windows PC with no hosting bill and no storage limit.
 Full plain-English steps are in [`desktop/READ ME FIRST.txt`](desktop/READ%20ME%20FIRST.txt).
 
-- **Start SB Pay.bat** starts the app at http://localhost:3000 and opens the browser. It uses a bundled or installed
-  Node.js 22.13+, or downloads a private copy the first time (no admin rights needed).
+- **Start SB Pay.bat** runs `node server/index.js --desktop` with the bundled `node\node.exe` (or an installed Node 22.13+).
+  Desktop mode sets the data folder, opens the browser, and just reopens the browser if the app is already running.
+  No PowerShell is used, because Windows Smart App Control blocks unsigned scripts but allows the signed node.exe.
 - Data lives in `%USERPROFILE%\SB Truckin Pay\data`. A dated `.sbtbackup` is written to
   `%USERPROFILE%\SB Truckin Pay\backups` on start, every 3 hours and on close; the newest 30 days are kept
   (set by `BACKUP_DIR` / `BACKUP_KEEP_DAYS`, which work on any host).
-- **Start automatically with Windows.bat** adds a Startup shortcut. **Phone access (optional).bat** opens a free
+- **Start automatically with Windows.bat** adds a Startup launcher. **Phone access (optional).bat** opens a free
   Cloudflare quick tunnel (temporary `trycloudflare.com` link). Phones on the same Wi-Fi can use the PC's address.
 - On a local or tunnel address, the WhatsApp button sends the RCTI PDF itself instead of a link, since a link to the PC
   would not open for the driver.

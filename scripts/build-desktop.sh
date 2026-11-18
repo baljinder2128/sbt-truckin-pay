@@ -8,7 +8,7 @@ OUT="$ROOT/dist"
 STAGE="$OUT/stage/SB Truckin Pay"
 rm -rf "$OUT/stage" && mkdir -p "$STAGE/app" "$OUT"
 
-cp "$ROOT/desktop/"*.bat "$ROOT/desktop/"*.ps1 "$ROOT/desktop/READ ME FIRST.txt" "$STAGE/"
+cp "$ROOT/desktop/"*.bat "$ROOT/desktop/READ ME FIRST.txt" "$STAGE/"
 cp -r "$ROOT/server" "$ROOT/public" "$ROOT/package.json" "$ROOT/package-lock.json" "$STAGE/app/"
 (cd "$STAGE/app" && npm ci --omit=dev --no-audit --no-fund --ignore-scripts >/dev/null)
 
