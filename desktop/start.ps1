@@ -21,7 +21,7 @@ New-Item -ItemType Directory -Force -Path $Data, $Backups | Out-Null
 
 # Already running? Just open it.
 try {
-  Invoke-RestMethod "http://localhost:$Port/api/health" -TimeoutSec 2 | Out-Null
+  Invoke-WebRequest "http://localhost:$Port/api/health" -TimeoutSec 2 -UseBasicParsing | Out-Null
   Say 'SB Truckin Pay is already running. Opening it...' 'Green'
   Start-Process "http://localhost:$Port"
   Start-Sleep 2; exit 0
@@ -72,7 +72,7 @@ try {
   $desk = [Environment]::GetFolderPath('Desktop')
   $sh = New-Object -ComObject WScript.Shell
   $bat = Get-ChildItem $Here -Filter 'Start SB Pay.bat' | Select-Object -First 1
-  if ($bat -and -not (Test-Path "$desk\SB Truckin Pay.lnk")) {
+  if ($bat) {  # always point the shortcut at this copy, in case an older copy was unzipped elsewhere
     $l = $sh.CreateShortcut("$desk\SB Truckin Pay.lnk")
     $l.TargetPath = $bat.FullName; $l.WorkingDirectory = $Here
     $icon = "$App\public\icons\favicon.ico"; if (Test-Path $icon) { $l.IconLocation = $icon }
@@ -109,16 +109,23 @@ Say '   KEEP THIS WINDOW OPEN (you can minimise it).' 'Yellow'
 Say '   Closing it stops the app. Double-click "SB Truckin Pay" on the desktop to start again.' 'Yellow'
 Say ''
 
-# Open the browser once the app answers.
-Start-Job -ScriptBlock {
-  param($p)
-  for ($i = 0; $i -lt 60; $i++) {
-    try { Invoke-RestMethod "http://localhost:$p/api/health" -TimeoutSec 1 | Out-Null; Start-Process "http://localhost:$p"; return } catch { Start-Sleep 1 }
-  }
-} -ArgumentList $Port | Out-Null
-
+# Start the app inside this window, then open the browser once it answers.
 Set-Location $App
-& $Node --disable-warning=ExperimentalWarning server/index.js
+$proc = Start-Process $Node -ArgumentList '--disable-warning=ExperimentalWarning', 'server/index.js' -NoNewWindow -PassThru
+$up = $false
+for ($i = 0; $i -lt 60 -and -not $proc.HasExited; $i++) {
+  try { Invoke-WebRequest "http://localhost:$Port/api/health" -TimeoutSec 1 -UseBasicParsing | Out-Null; $up = $true; break } catch { Start-Sleep 1 }
+}
+if ($up) {
+  Say ''
+  Say '   >>> SB Truckin Pay is ready. Opening it in your browser now... <<<' 'Green'
+  Say "   If no browser opens, open Edge and type:  localhost:$Port" 'Green'
+  Say ''
+  try { Start-Process "http://localhost:$Port" } catch {
+    try { Start-Process 'msedge.exe' "http://localhost:$Port" } catch { }
+  }
+}
+Wait-Process -Id $proc.Id -ErrorAction SilentlyContinue
 Say ''
-Say 'The app has stopped.' 'Red'
+Say 'The app has stopped. Take a photo of this window and send it to Claude if you did not close it yourself.' 'Red'
 Read-Host 'Press Enter to close'
