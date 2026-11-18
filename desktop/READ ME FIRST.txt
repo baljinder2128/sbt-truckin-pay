@@ -25,12 +25,11 @@ and a backup copy is made every day in:
      know. It only happens the first time.)
    - If Windows Firewall asks about "Node.js": tick "Private networks",
      then click "Allow". This lets your phone open the app on your Wi-Fi.
-4. A black window opens and the app opens in your browser at
-   http://localhost:3000
-   KEEP THE BLACK WINDOW OPEN. You can minimise it (the "_" button).
-   Closing it stops the app.
-5. For a desktop icon: right-click "Start SB Pay" > Show more options >
-   Send to > Desktop (create shortcut).
+4. A window flashes and the app opens in your browser at
+   http://localhost:3000 . It runs hidden in the background, and from
+   now on starts by itself every time you sign in to Windows.
+5. An "SB Truckin Pay" icon appears on your desktop. Double-click it
+   any time to open the app.
    Works with Windows Smart App Control left ON.
 
 Tip: in Edge, click the "..." menu > Apps > "Install this site as an app"
@@ -39,7 +38,8 @@ so SB Pay gets its own icon, like before.
 
 2. EVERY DAY
 ------------
-Double-click "Start SB Pay" (or its desktop icon). That's it.
+Double-click the "SB Truckin Pay" icon on the desktop. That's it.
+If it says "can't be reached", double-click "Start SB Pay" once.
 If it is already running it just opens again.
 
 To make it start by itself when the computer turns on, double-click

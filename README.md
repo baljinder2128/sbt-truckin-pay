@@ -63,7 +63,9 @@ The `desktop/` folder runs the app on one Windows PC with no hosting bill and no
 Full plain-English steps are in [`desktop/READ ME FIRST.txt`](desktop/READ%20ME%20FIRST.txt).
 
 - **Start SB Pay.bat** runs `node server/index.js --desktop` with the bundled `node\node.exe` (or an installed Node 22.13+).
-  Desktop mode sets the data folder, opens the browser, and just reopens the browser if the app is already running.
+  With `--background` it starts the app hidden (log in `app-log.txt`), opens the browser and exits; if the app is
+  already running it only opens the browser. The first start adds a Startup launcher (runs hidden at sign-in) and an
+  `SB Truckin Pay.url` desktop icon pointing at http://localhost:3000.
   No PowerShell is used, because Windows Smart App Control blocks unsigned scripts but allows the signed node.exe.
 - Data lives in `%USERPROFILE%\SB Truckin Pay\data`. A dated `.sbtbackup` is written to
   `%USERPROFILE%\SB Truckin Pay\backups` on start, every 3 hours and on close; the newest 30 days are kept

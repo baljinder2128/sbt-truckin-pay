@@ -2,7 +2,9 @@
 // so no PowerShell script is involved (Windows Smart App Control blocks unsigned scripts, but allows signed node.exe).
 const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
+const fs = require('fs');
+const http = require('http');
+const { spawn, execFileSync } = require('child_process');
 
 const enabled = process.argv.includes('--desktop');
 
@@ -43,4 +45,58 @@ function banner(port, dataDir, backupDir) {
   console.log('   KEEP THIS WINDOW OPEN (you can minimise it). Closing it stops the app.\n');
 }
 
-module.exports = { enabled, setup, openBrowser, banner };
+function healthy(port) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port, path: '/api/health', timeout: 1500 }, (res) => { res.resume(); resolve(res.statusCode === 200); });
+    req.on('error', () => resolve(false)).on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+
+// "--desktop --background": start the app hidden (no window to close), open the browser, and exit.
+// If it is already running, just open the browser. "--no-browser" is used when Windows starts it at sign-in.
+async function launchInBackground() {
+  const port = Number(process.env.PORT);
+  const url = `http://localhost:${port}`;
+  const wantBrowser = !process.argv.includes('--no-browser');
+  if (!(await healthy(port))) {
+    fs.mkdirSync(process.env.DATA_DIR, { recursive: true });
+    const log = fs.openSync(path.join(process.env.DATA_DIR, '..', 'app-log.txt'), 'a');
+    const args = process.execArgv.concat([process.argv[1], '--desktop']);
+    spawn(process.execPath, args, { cwd: process.cwd(), detached: true, windowsHide: true, stdio: ['ignore', log, log] }).unref();
+    for (let i = 0; i < 60 && !(await healthy(port)); i++) await new Promise((r) => setTimeout(r, 500));
+  }
+  if (wantBrowser) openBrowser(url);
+  setTimeout(() => process.exit(0), 1500);
+}
+
+function desktopFolder() {
+  try {
+    const out = execFileSync('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders', '/v', 'Desktop'], { encoding: 'utf8', windowsHide: true });
+    const m = out.match(/REG_(?:EXPAND_)?SZ\s+(.+)/);
+    if (m) {
+      const p = m[1].trim().replace(/%([^%]+)%/g, (_, k) => process.env[k] || process.env[k.toUpperCase()] || '');
+      if (fs.existsSync(p)) return p;
+    }
+  } catch { /* fall back below */ }
+  return path.join(os.homedir(), 'Desktop');
+}
+
+// Windows only: start hidden at every sign-in, and put an "SB Truckin Pay" icon on the desktop that opens it.
+function installShortcuts(port) {
+  if (!enabled || process.platform !== 'win32') return;
+  const appDir = path.resolve(__dirname, '..');
+  const script = path.join(appDir, 'server', 'index.js');
+  try {
+    const startup = path.join(process.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup');
+    fs.mkdirSync(startup, { recursive: true });
+    fs.writeFileSync(path.join(startup, 'SB Truckin Pay.cmd'),
+      `@echo off\r\ncd /d "${appDir}"\r\nstart "" /b "${process.execPath}" --disable-warning=ExperimentalWarning "${script}" --desktop --background --no-browser\r\n`);
+  } catch (e) { console.error('Could not set up start at sign-in:', e.message); }
+  try {
+    const icon = path.join(appDir, 'public', 'icons', 'favicon.ico');
+    fs.writeFileSync(path.join(desktopFolder(), 'SB Truckin Pay.url'),
+      `[InternetShortcut]\r\nURL=http://localhost:${port}/\r\nIconFile=${icon}\r\nIconIndex=0\r\n`);
+  } catch (e) { console.error('Could not make the desktop icon:', e.message); }
+}
+
+module.exports = { enabled, setup, openBrowser, banner, launchInBackground, installShortcuts };

@@ -841,7 +841,8 @@ const runWeekly = () => {
 cron.schedule('0 1 * * 0', runWeekly, { timezone: TZ });
 cron.schedule('0 8 * * *', () => licenceReminders().catch((e) => console.error('licence reminders failed', e)), { timezone: TZ });
 
-if (require.main === module) (async () => {
+if (require.main === module && desktop.enabled && process.argv.includes('--background')) desktop.launchInBackground();
+else if (require.main === module) (async () => {
   // Load the online copy first (if there is one) so nobody sees an empty app after a restart.
   if (snapshot.enabled) {
     let loaded = false;
@@ -857,7 +858,7 @@ if (require.main === module) (async () => {
   for (const port of new Set(process.env.SBT_DESKTOP ? [PORT] : [PORT, 3000, 8080])) {
     app.listen(port, '0.0.0.0', () => {
       console.log(`SB Truckin pay app listening on port ${port}`);
-      if (desktop.enabled) { desktop.banner(port, DATA_DIR, autobackup.DIR); desktop.openBrowser(`http://localhost:${port}`); }
+      if (desktop.enabled) { desktop.banner(port, DATA_DIR, autobackup.DIR); desktop.installShortcuts(port); if (process.stdout.isTTY) desktop.openBrowser(`http://localhost:${port}`); }
     }).on('error', (e) => {
       console.error(`port ${port}: ${e.message}`);
       // Started twice: the app is already open in another window, so just show it.
